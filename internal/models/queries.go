@@ -255,7 +255,9 @@ func ListCounterparties(d *sql.DB, search string) ([]Counterparty, error) {
 		like := "%" + search + "%"
 		args = append(args, like, like, like)
 	}
-	q += ` ORDER BY name COLLATE NOCASE, id`
+	// PostgreSQL does not provide SQLite's NOCASE collation. Sorting the
+	// lowercase value keeps the counterparties list case-insensitive.
+	q += ` ORDER BY lower(name), id`
 	rows, err := d.Query(q, args...)
 	if err != nil {
 		return nil, err
