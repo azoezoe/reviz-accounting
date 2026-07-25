@@ -44,7 +44,8 @@ func (s *Server) MCP(w http.ResponseWriter, r *http.Request) {
 		Method  string          `json:"method"`
 		Params  json.RawMessage `json:"params"`
 	}
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req) != nil {
+	// Base64 receipt payloads are roughly 4/3 the original file size.
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, maxReceiptBytes*2)).Decode(&req) != nil {
 		http.Error(w, "bad JSON", 400)
 		return
 	}
