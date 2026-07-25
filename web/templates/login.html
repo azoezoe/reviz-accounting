@@ -17,6 +17,11 @@
       </p>
       <form method="post" action="/login" autocomplete="on">
         <input type="hidden" name="next" value="{{.Next}}">
+        {{if .PasswordUpdated}}
+        <div style="background: var(--success-50); border: 1px solid var(--success-100); color: var(--success-700); padding: 10px 14px; border-radius: var(--r-md); font-family: var(--font-sans); font-size: 13px;">
+          密碼已更新，請使用新密碼登入。
+        </div>
+        {{end}}
         {{if .Error}}
         <div style="background: var(--danger-50); border: 1px solid var(--danger-100); color: var(--danger-700); padding: 10px 14px; border-radius: var(--r-md); font-family: var(--font-sans); font-size: 13px;">
           {{.Error}}

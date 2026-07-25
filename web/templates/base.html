@@ -158,18 +158,20 @@
 
   {{if $user}}
   <div class="lg-side__footer">
-    <form method="post" action="/logout" style="display:flex; align-items:center; gap:10px; padding:6px; width:100%; background:none; border:none; cursor:pointer;">
-      <div class="lg-side__user" style="flex:1; padding:0;">
+    <div style="display:flex; align-items:center; gap:10px; padding:6px; width:100%;">
+      <a href="/profile/password" class="lg-side__user" style="flex:1; padding:0; text-decoration:none; color:inherit;">
         <div class="lg-side__avatar">{{slice $user.Username 0 1}}</div>
         <div class="lg-side__user-meta">
           <p class="lg-side__user-name">{{$user.Username}}</p>
-          <p class="lg-side__user-email">{{$user.Role}}</p>
+          <p class="lg-side__user-email">{{$user.Role}} · 變更密碼</p>
         </div>
-      </div>
+      </a>
+      <form method="post" action="/logout">
       <button class="lg-row-action" title="登出" style="color: var(--text-faint);">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
       </button>
-    </form>
+      </form>
+    </div>
   </div>
   {{end}}
 </aside>

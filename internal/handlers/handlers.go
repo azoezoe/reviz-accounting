@@ -112,6 +112,8 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /export/transactions.csv", view(s.exportCSV))
 	mux.Handle("GET /export/monthly.xlsx", view(s.exportMonthlyXLSX))
 	mux.Handle("GET /import", view(s.importPage))
+	mux.Handle("GET /profile/password", view(s.passwordPage))
+	mux.Handle("POST /profile/password", view(s.passwordUpdate))
 
 	// accountant + owner can mutate
 	acct := func(h http.HandlerFunc) http.Handler {
