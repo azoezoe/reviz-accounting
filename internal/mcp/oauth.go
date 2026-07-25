@@ -17,9 +17,13 @@ import (
 	"time"
 
 	"github.com/hcchien/reviz-accounting/internal/auth"
+	filestore "github.com/hcchien/reviz-accounting/internal/storage"
 )
 
-type Server struct{ DB *sql.DB }
+type Server struct {
+	DB          *sql.DB
+	Attachments filestore.Store
+}
 
 func randomValue(n int) (string, error) {
 	b := make([]byte, n)

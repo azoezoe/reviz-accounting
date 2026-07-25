@@ -90,7 +90,7 @@ func NewServer(d *sql.DB, embedFS embed.FS, attachments filestore.Store) (*Serve
 //   - accountant+       : all POST routes that mutate accounting data
 //   - owner only        : /users and POST /users/* (user management)
 func (s *Server) Routes(mux *http.ServeMux) {
-	mcpServer := &mcp.Server{DB: s.DB}
+	mcpServer := &mcp.Server{DB: s.DB, Attachments: s.Attachments}
 	mux.Handle("GET /.well-known/oauth-authorization-server", http.HandlerFunc(mcpServer.Metadata))
 	mux.Handle("GET /.well-known/oauth-protected-resource", http.HandlerFunc(mcpServer.ProtectedResource))
 	mux.Handle("POST /oauth/register", http.HandlerFunc(mcpServer.Register))
