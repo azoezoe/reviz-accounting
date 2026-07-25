@@ -19,6 +19,9 @@
     </span>
   </div>
   {{end}}
+  <div class="lg-page-actions">
+    <a href="/profile/password" class="lg-btn-secondary">變更我的密碼</a>
+  </div>
 </div>
 
 <section class="lg-panel">
@@ -67,6 +70,15 @@
           </form>
         {{end}}
       </span>
+
+      <details style="position:relative;">
+        <summary class="lg-btn-link" style="cursor:pointer; color:var(--text-brand);">重設密碼</summary>
+        <form method="post" action="/users/{{.ID}}" style="position:absolute; right:0; z-index:2; width:260px; padding:14px; margin-top:8px; border:1px solid var(--border-subtle); border-radius:var(--r-md); background:var(--bg-base); box-shadow:var(--shadow-md); display:grid; gap:10px;" onsubmit="return confirm('確定要重設「{{.Username}}」的密碼？該使用者所有裝置會被登出。')">
+          <label class="lg-field__label">新密碼（至少 6 字元）</label>
+          <input class="lg-input" type="password" name="password" minlength="6" autocomplete="new-password" required>
+          <button class="lg-btn-primary" type="submit">儲存新密碼</button>
+        </form>
+      </details>
 
       <form method="post" action="/users/{{.ID}}/delete" style="display:inline;" onsubmit="return confirm('刪除「{{.Username}}」？無法復原。')">
         <button class="lg-row-action is-danger" title="刪除">
