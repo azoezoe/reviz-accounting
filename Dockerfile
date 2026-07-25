@@ -7,9 +7,7 @@ WORKDIR /src
 
 # Cache module downloads in a separate layer.
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    go mod download
+RUN go mod download
 
 # Copy source. Templates, CSS, and the Simpany .xlsx template are all
 # embedded into the binary via go:embed — runtime stage needs nothing else.
@@ -18,9 +16,7 @@ COPY . .
 ENV CGO_ENABLED=0 GOOS=linux GOFLAGS=-trimpath
 
 ARG VERSION=dev
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    go build -ldflags="-s -w -X main.version=${VERSION}" -o /out/reviz-accounting .
+RUN go build -ldflags="-s -w -X main.version=${VERSION}" -o /out/reviz-accounting .
 
 # ---- runtime stage ------------------------------------------------------
 # distroless/static — no shell, no libc; ~2 MB. modernc.org/sqlite is pure Go
