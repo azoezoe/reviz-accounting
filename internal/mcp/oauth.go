@@ -88,7 +88,9 @@ func (s *Server) Authorize(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// All values are URL encoded before being placed back in the form action.
-	_, _ = w.Write([]byte("<!doctype html><meta charset=utf-8><title>授權 ReViz MCP</title><main style='max-width:600px;margin:5rem auto;font-family:sans-serif'><h1>授權 ReViz MCP</h1><p>「" + htmlText(name) + "」要求以 <b>" + htmlText(u.Username) + "</b> 身分讀取及依權限修改帳務。</p><form method=post action='/oauth/authorize'><input type=hidden name=request value='" + url.QueryEscape(r.URL.RawQuery) + "'><button type=submit>同意並連線</button></form></main>"))
+	// Keep the original query intact. Escaping it as a URL value here would
+	// encode the separators (&) and make ParseQuery treat it as one key.
+	_, _ = w.Write([]byte("<!doctype html><meta charset=utf-8><title>授權 ReViz MCP</title><main style='max-width:600px;margin:5rem auto;font-family:sans-serif'><h1>授權 ReViz MCP</h1><p>「" + htmlText(name) + "」要求以 <b>" + htmlText(u.Username) + "</b> 身分讀取及依權限修改帳務。</p><form method=post action='/oauth/authorize'><input type=hidden name=request value='" + htmlText(r.URL.RawQuery) + "'><button type=submit>同意並連線</button></form></main>"))
 }
 
 func (s *Server) Approve(w http.ResponseWriter, r *http.Request) {
