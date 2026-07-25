@@ -36,11 +36,12 @@ func main() {
 		defaultAddr = ":" + p
 	}
 	var (
-		addr           = flag.String("addr", defaultAddr, "HTTP listen address (overrides $PORT)")
-		dbURL          = flag.String("db-url", "", "PostgreSQL connection URL (or $DATABASE_URL)")
-		createUser     = flag.String("create-user", "", "Create a user with this username (prompts for password) and exit")
-		createRole     = flag.String("create-role", "owner", "Role for -create-user (owner|accountant|viewer)")
-		attachmentsDir = flag.String("attachments-dir", "data/attachments", "Local attachment directory (used when $GCS_BUCKET is unset)")
+		addr              = flag.String("addr", defaultAddr, "HTTP listen address (overrides $PORT)")
+		dbURL             = flag.String("db-url", "", "PostgreSQL connection URL (or $DATABASE_URL)")
+		createUser        = flag.String("create-user", "", "Create a user with this username (prompts for password) and exit")
+		createRole        = flag.String("create-role", "owner", "Role for -create-user (owner|accountant|viewer)")
+		createPasswordEnv = flag.String("create-password-env", "", "Environment variable containing password for non-interactive -create-user")
+		attachmentsDir    = flag.String("attachments-dir", "data/attachments", "Local attachment directory (used when $GCS_BUCKET is unset)")
 	)
 	flag.Parse()
 	if *dbURL == "" {
@@ -58,16 +59,24 @@ func main() {
 	}
 
 	if *createUser != "" {
-		pw, err := readPasswordInteractive("輸入密碼 (≥ 6 字元): ")
-		if err != nil {
-			log.Fatalf("讀取密碼失敗: %v", err)
-		}
-		confirm, err := readPasswordInteractive("再次輸入密碼: ")
-		if err != nil {
-			log.Fatalf("讀取密碼失敗: %v", err)
-		}
-		if pw != confirm {
-			log.Fatal("兩次密碼不一致")
+		var pw string
+		if *createPasswordEnv != "" {
+			pw = os.Getenv(*createPasswordEnv)
+			if pw == "" {
+				log.Fatalf("環境變數 %s 沒有密碼", *createPasswordEnv)
+			}
+		} else {
+			pw, err = readPasswordInteractive("輸入密碼 (≥ 6 字元): ")
+			if err != nil {
+				log.Fatalf("讀取密碼失敗: %v", err)
+			}
+			confirm, err := readPasswordInteractive("再次輸入密碼: ")
+			if err != nil {
+				log.Fatalf("讀取密碼失敗: %v", err)
+			}
+			if pw != confirm {
+				log.Fatal("兩次密碼不一致")
+			}
 		}
 		u, err := auth.CreateUser(d, *createUser, pw, *createRole)
 		if err != nil {
