@@ -260,17 +260,82 @@ func DeleteProject(d *sql.DB, id int64) error {
 	return err
 }
 
+// ----- Counterparties -----
+
+func ListCounterparties(d *sql.DB, search string) ([]Counterparty, error) {
+	q := `SELECT id, name, tax_id, contact_name, phone, address, email, bank_name, bank_account_name, bank_account_no FROM counterparties`
+	args := []any{}
+	if search != "" {
+		q += ` WHERE name LIKE ? OR tax_id LIKE ? OR contact_name LIKE ?`
+		like := "%" + search + "%"
+		args = append(args, like, like, like)
+	}
+	q += ` ORDER BY name COLLATE NOCASE, id`
+	rows, err := d.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Counterparty
+	for rows.Next() {
+		var c Counterparty
+		if err := rows.Scan(&c.ID, &c.Name, &c.TaxID, &c.ContactName, &c.Phone, &c.Address, &c.Email, &c.BankName, &c.BankAccountName, &c.BankAccountNo); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func CreateCounterparty(d *sql.DB, c *Counterparty) (int64, error) {
+	res, err := d.Exec(`INSERT INTO counterparties(name,tax_id,contact_name,phone,address,email,bank_name,bank_account_name,bank_account_no) VALUES(?,?,?,?,?,?,?,?,?)`, c.Name, c.TaxID, c.ContactName, c.Phone, c.Address, c.Email, c.BankName, c.BankAccountName, c.BankAccountNo)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func UpdateCounterparty(d *sql.DB, c *Counterparty) error {
+	_, err := d.Exec(`UPDATE counterparties SET name=?,tax_id=?,contact_name=?,phone=?,address=?,email=?,bank_name=?,bank_account_name=?,bank_account_no=?,updated_at=CURRENT_TIMESTAMP::text WHERE id=?`, c.Name, c.TaxID, c.ContactName, c.Phone, c.Address, c.Email, c.BankName, c.BankAccountName, c.BankAccountNo, c.ID)
+	return err
+}
+
+func GetOrCreateCounterparty(d *sql.DB, name string) (sql.NullInt64, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return sql.NullInt64{}, nil
+	}
+	var id int64
+	err := d.QueryRow(`SELECT id FROM counterparties WHERE name=?`, name).Scan(&id)
+	if err == nil {
+		return sql.NullInt64{Int64: id, Valid: true}, nil
+	}
+	if err != sql.ErrNoRows {
+		return sql.NullInt64{}, err
+	}
+	id, err = CreateCounterparty(d, &Counterparty{Name: name})
+	if err != nil {
+		return sql.NullInt64{}, err
+	}
+	return sql.NullInt64{Int64: id, Valid: true}, nil
+}
+
+func DeleteCounterparty(d *sql.DB, id int64) error {
+	_, err := d.Exec(`DELETE FROM counterparties WHERE id=?`, id)
+	return err
+}
+
 // ----- Transactions -----
 
 type TxFilter struct {
-	YearMonth   string // "" or "YYYY-MM"
-	Year        string // "" or "YYYY"
-	CategoryID  int64
-	ProjectID   int64
-	AccountID   int64
-	SearchText  string
-	Limit       int
-	Offset      int
+	YearMonth  string // "" or "YYYY-MM"
+	Year       string // "" or "YYYY"
+	CategoryID int64
+	ProjectID  int64
+	AccountID  int64
+	SearchText string
+	Limit      int
+	Offset     int
 }
 
 func ListTransactions(d *sql.DB, f TxFilter) ([]Transaction, int, error) {
@@ -298,9 +363,9 @@ func ListTransactions(d *sql.DB, f TxFilter) ([]Transaction, int, error) {
 		args = append(args, f.AccountID, f.AccountID)
 	}
 	if f.SearchText != "" {
-		where = append(where, `(t.description LIKE ? OR t.note LIKE ? OR t.code LIKE ?)`)
+		where = append(where, `(t.description LIKE ? OR t.note LIKE ? OR t.code LIKE ? OR cp.name LIKE ?)`)
 		like := "%" + f.SearchText + "%"
-		args = append(args, like, like, like)
+		args = append(args, like, like, like, like)
 	}
 	clause := ""
 	if len(where) > 0 {
@@ -309,20 +374,21 @@ func ListTransactions(d *sql.DB, f TxFilter) ([]Transaction, int, error) {
 
 	// Count
 	var total int
-	countQ := `SELECT COUNT(*) FROM transactions t` + clause
+	countQ := `SELECT COUNT(*) FROM transactions t LEFT JOIN counterparties cp ON cp.id=t.counterparty_id` + clause
 	if err := d.QueryRow(countQ, args...).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count: %w", err)
 	}
 
 	q := `
-        SELECT t.id, t.code, t.tx_date, t.description, t.category_id, t.amount_cents,
-               t.from_account_id, t.to_account_id, t.project_id, t.note,
-               COALESCE(c.name,''), COALESCE(fa.name,''), COALESCE(ta.name,''), COALESCE(p.name,'')
+		SELECT t.id, t.code, t.tx_date, t.description, t.counterparty_id, t.category_id, t.amount_cents,
+		       t.from_account_id, t.to_account_id, t.project_id, t.note,
+		       COALESCE(c.name,''), COALESCE(fa.name,''), COALESCE(ta.name,''), COALESCE(p.name,''), COALESCE(cp.name,'')
         FROM transactions t
         LEFT JOIN categories c ON c.id=t.category_id
         LEFT JOIN accounts   fa ON fa.id=t.from_account_id
         LEFT JOIN accounts   ta ON ta.id=t.to_account_id
-        LEFT JOIN projects   p  ON p.id=t.project_id
+		LEFT JOIN projects   p  ON p.id=t.project_id
+		LEFT JOIN counterparties cp ON cp.id=t.counterparty_id
     ` + clause + ` ORDER BY t.tx_date DESC, t.id DESC`
 	if f.Limit > 0 {
 		q += fmt.Sprintf(" LIMIT %d OFFSET %d", f.Limit, f.Offset)
@@ -336,9 +402,9 @@ func ListTransactions(d *sql.DB, f TxFilter) ([]Transaction, int, error) {
 	for rows.Next() {
 		var t Transaction
 		if err := rows.Scan(
-			&t.ID, &t.Code, &t.Date, &t.Description, &t.CategoryID, &t.AmountCents,
+			&t.ID, &t.Code, &t.Date, &t.Description, &t.CounterpartyID, &t.CategoryID, &t.AmountCents,
 			&t.FromAccountID, &t.ToAccountID, &t.ProjectID, &t.Note,
-			&t.CategoryName, &t.FromAccountName, &t.ToAccountName, &t.ProjectName,
+			&t.CategoryName, &t.FromAccountName, &t.ToAccountName, &t.ProjectName, &t.CounterpartyName,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -350,12 +416,12 @@ func ListTransactions(d *sql.DB, f TxFilter) ([]Transaction, int, error) {
 func GetTransaction(d *sql.DB, id int64) (*Transaction, error) {
 	var t Transaction
 	err := d.QueryRow(`
-        SELECT t.id, t.code, t.tx_date, t.description, t.category_id, t.amount_cents,
-               t.from_account_id, t.to_account_id, t.project_id, t.note
-        FROM transactions t WHERE t.id=?`, id,
+        SELECT t.id, t.code, t.tx_date, t.description, t.counterparty_id, t.category_id, t.amount_cents,
+               t.from_account_id, t.to_account_id, t.project_id, t.note, COALESCE(cp.name,'')
+        FROM transactions t LEFT JOIN counterparties cp ON cp.id=t.counterparty_id WHERE t.id=?`, id,
 	).Scan(
-		&t.ID, &t.Code, &t.Date, &t.Description, &t.CategoryID, &t.AmountCents,
-		&t.FromAccountID, &t.ToAccountID, &t.ProjectID, &t.Note,
+		&t.ID, &t.Code, &t.Date, &t.Description, &t.CounterpartyID, &t.CategoryID, &t.AmountCents,
+		&t.FromAccountID, &t.ToAccountID, &t.ProjectID, &t.Note, &t.CounterpartyName,
 	)
 	if err != nil {
 		return nil, err
@@ -366,10 +432,10 @@ func GetTransaction(d *sql.DB, id int64) (*Transaction, error) {
 func CreateTransaction(d *sql.DB, t *Transaction) (int64, error) {
 	res, err := d.Exec(`
         INSERT INTO transactions(
-            code, tx_date, description, category_id, amount_cents,
+			code, tx_date, description, counterparty_id, category_id, amount_cents,
             from_account_id, to_account_id, project_id, note
-        ) VALUES(?,?,?,?,?,?,?,?,?)`,
-		t.Code, t.Date, t.Description, t.CategoryID, t.AmountCents,
+		) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		t.Code, t.Date, t.Description, t.CounterpartyID, t.CategoryID, t.AmountCents,
 		t.FromAccountID, t.ToAccountID, t.ProjectID, t.Note,
 	)
 	if err != nil {
@@ -381,11 +447,11 @@ func CreateTransaction(d *sql.DB, t *Transaction) (int64, error) {
 func UpdateTransaction(d *sql.DB, t *Transaction) error {
 	_, err := d.Exec(`
         UPDATE transactions SET
-            tx_date=?, description=?, category_id=?, amount_cents=?,
+			tx_date=?, description=?, counterparty_id=?, category_id=?, amount_cents=?,
             from_account_id=?, to_account_id=?, project_id=?, note=?,
-            updated_at=datetime('now')
+			updated_at=CURRENT_TIMESTAMP::text
         WHERE id=?`,
-		t.Date, t.Description, t.CategoryID, t.AmountCents,
+		t.Date, t.Description, t.CounterpartyID, t.CategoryID, t.AmountCents,
 		t.FromAccountID, t.ToAccountID, t.ProjectID, t.Note, t.ID,
 	)
 	return err
@@ -393,6 +459,47 @@ func UpdateTransaction(d *sql.DB, t *Transaction) error {
 
 func DeleteTransaction(d *sql.DB, id int64) error {
 	_, err := d.Exec(`DELETE FROM transactions WHERE id=?`, id)
+	return err
+}
+
+// ----- Transaction attachments -----
+
+func ListAttachments(d *sql.DB, transactionID int64) ([]Attachment, error) {
+	rows, err := d.Query(`SELECT a.id,a.transaction_id,a.storage_key,a.original_filename,a.content_type,a.size_bytes,a.uploaded_by_id,a.created_at,COALESCE(u.username,'') FROM transaction_attachments a LEFT JOIN users u ON u.id=a.uploaded_by_id WHERE a.transaction_id=? ORDER BY a.created_at DESC,a.id DESC`, transactionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Attachment
+	for rows.Next() {
+		var a Attachment
+		if err := rows.Scan(&a.ID, &a.TransactionID, &a.StorageKey, &a.OriginalFilename, &a.ContentType, &a.SizeBytes, &a.UploadedByID, &a.CreatedAt, &a.UploadedByName); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func GetAttachment(d *sql.DB, id int64) (*Attachment, error) {
+	var a Attachment
+	err := d.QueryRow(`SELECT id,transaction_id,storage_key,original_filename,content_type,size_bytes,uploaded_by_id,created_at FROM transaction_attachments WHERE id=?`, id).Scan(&a.ID, &a.TransactionID, &a.StorageKey, &a.OriginalFilename, &a.ContentType, &a.SizeBytes, &a.UploadedByID, &a.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func CreateAttachment(d *sql.DB, a *Attachment) (int64, error) {
+	res, err := d.Exec(`INSERT INTO transaction_attachments(transaction_id,storage_key,original_filename,content_type,size_bytes,uploaded_by_id) VALUES(?,?,?,?,?,?)`, a.TransactionID, a.StorageKey, a.OriginalFilename, a.ContentType, a.SizeBytes, a.UploadedByID)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func DeleteAttachment(d *sql.DB, id int64) error {
+	_, err := d.Exec(`DELETE FROM transaction_attachments WHERE id=?`, id)
 	return err
 }
 

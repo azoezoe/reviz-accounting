@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"embed"
 	"flag"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,6 +18,7 @@ import (
 	"github.com/hcchien/reviz-accounting/internal/auth"
 	"github.com/hcchien/reviz-accounting/internal/db"
 	"github.com/hcchien/reviz-accounting/internal/handlers"
+	filestore "github.com/hcchien/reviz-accounting/internal/storage"
 )
 
 //go:embed web/templates/*.html
@@ -35,17 +36,15 @@ func main() {
 		defaultAddr = ":" + p
 	}
 	var (
-		addr       = flag.String("addr", defaultAddr, "HTTP listen address (overrides $PORT)")
-		dbPath     = flag.String("db", "data/reviz.db", "SQLite database file")
-		createUser = flag.String("create-user", "", "Create a user with this username (prompts for password) and exit")
-		createRole = flag.String("create-role", "owner", "Role for -create-user (owner|accountant|viewer)")
+		addr           = flag.String("addr", defaultAddr, "HTTP listen address (overrides $PORT)")
+		dbURL          = flag.String("db-url", os.Getenv("DATABASE_URL"), "PostgreSQL connection URL (or $DATABASE_URL)")
+		createUser     = flag.String("create-user", "", "Create a user with this username (prompts for password) and exit")
+		createRole     = flag.String("create-role", "owner", "Role for -create-user (owner|accountant|viewer)")
+		attachmentsDir = flag.String("attachments-dir", "data/attachments", "Local attachment directory (used when $GCS_BUCKET is unset)")
 	)
 	flag.Parse()
 
-	if err := os.MkdirAll(filepath.Dir(*dbPath), 0o755); err != nil {
-		log.Fatalf("mkdir: %v", err)
-	}
-	d, err := db.Open(*dbPath)
+	d, err := db.Open(*dbURL)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
@@ -89,7 +88,12 @@ func main() {
 		}
 	}()
 
-	srv, err := handlers.NewServer(d, templatesFS)
+	attachmentStore, err := filestore.New(context.Background(), os.Getenv("GCS_BUCKET"), *attachmentsDir)
+	if err != nil {
+		log.Fatalf("init attachment storage: %v", err)
+	}
+	defer attachmentStore.Close()
+	srv, err := handlers.NewServer(d, templatesFS, attachmentStore)
 	if err != nil {
 		log.Fatalf("init server: %v", err)
 	}
@@ -107,7 +111,7 @@ func main() {
 
 	handler := withLogging(auth.Attach(d, mux))
 
-	log.Printf("reviz-accounting listening on http://localhost%s (db=%s)", *addr, *dbPath)
+	log.Printf("reviz-accounting listening on http://localhost%s (PostgreSQL)", *addr)
 	if err := http.ListenAndServe(*addr, handler); err != nil {
 		log.Fatal(err)
 	}

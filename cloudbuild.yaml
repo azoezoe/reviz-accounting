@@ -16,8 +16,8 @@ substitutions:
   _REPO:            "reviz"
   _SERVICE:         "reviz-accounting"
   _BUCKET:          "${PROJECT_ID}-reviz-data"
-  _MIN_INSTANCES:   "1"
-  _MAX_INSTANCES:   "1"
+  _MIN_INSTANCES:   "0"
+  _MAX_INSTANCES:   "3"
   _CPU:             "1"
   _MEMORY:          "512Mi"
 
@@ -49,9 +49,7 @@ steps:
 
   # ---------- Deploy to Cloud Run ----------
   #
-  # SQLite needs a stable filesystem. We mount a GCS bucket at /data via the
-  # Cloud Run gen2 execution environment. To make SQLite locking safe, the
-  # service is pinned to a single instance (min/max = 1).
+  # PostgreSQL is hosted by Cloud SQL; GCS is used only for receipt objects.
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
@@ -70,8 +68,10 @@ steps:
       - --concurrency=80
       - --port=8080
       - --no-allow-unauthenticated
-      - --add-volume=name=data,type=cloud-storage,bucket=${_BUCKET}
-      - --add-volume-mount=volume=data,mount-path=/data
+      - --service-account=reviz-run@${PROJECT_ID}.iam.gserviceaccount.com
+      - --add-cloudsql-instances=elix-498805:asia-east1:elix-dev
+      - --set-secrets=DATABASE_URL=reviz-database-url:latest
+      - --set-env-vars=GCS_BUCKET=${_BUCKET}
       - --labels=managed-by=cloudbuild,app=reviz-accounting
     waitFor: [push-sha]
 

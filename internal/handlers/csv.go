@@ -15,7 +15,7 @@ import (
 )
 
 var csvHeader = []string{
-	"code", "date", "description", "category", "amount",
+	"code", "date", "counterparty", "description", "category", "amount",
 	"from_account", "to_account", "project", "note",
 }
 
@@ -38,6 +38,7 @@ func (s *Server) exportCSV(w http.ResponseWriter, r *http.Request) {
 		cw.Write([]string{
 			t.Code,
 			t.Date,
+			t.CounterpartyName,
 			t.Description,
 			t.CategoryName,
 			money.FormatCents(t.AmountCents),
@@ -178,14 +179,21 @@ func (s *Server) importTransactions(r io.Reader) (*importResult, error) {
 		}
 
 		t := &models.Transaction{
-			Date:          date,
-			Description:   desc,
-			AmountCents:   amt,
-			FromAccountID: models.NullInt64From(from),
-			ToAccountID:   models.NullInt64From(to),
-			CategoryID:    models.NullInt64From(catByName[get(row, "category")]),
-			ProjectID:     models.NullInt64From(projByName[get(row, "project")]),
-			Note:          get(row, "note"),
+			Date:           date,
+			Description:    desc,
+			CounterpartyID: models.NullInt64From(0),
+			AmountCents:    amt,
+			FromAccountID:  models.NullInt64From(from),
+			ToAccountID:    models.NullInt64From(to),
+			CategoryID:     models.NullInt64From(catByName[get(row, "category")]),
+			ProjectID:      models.NullInt64From(projByName[get(row, "project")]),
+			Note:           get(row, "note"),
+		}
+		if cp, err := models.GetOrCreateCounterparty(s.DB, get(row, "counterparty")); err != nil {
+			res.Errors = append(res.Errors, fmt.Sprintf("第 %d 行：交易對象 %s", lineNum, err))
+			continue
+		} else {
+			t.CounterpartyID = cp
 		}
 		if code := get(row, "code"); code != "" {
 			t.Code = code

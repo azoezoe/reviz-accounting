@@ -29,6 +29,22 @@ type Project struct {
 	Note      string
 }
 
+// Counterparty is a customer, supplier, or person involved in a transaction.
+// Only its name is required while recording a transaction; the other details
+// can be completed later from the management page.
+type Counterparty struct {
+	ID              int64
+	Name            string
+	TaxID           string
+	ContactName     string
+	Phone           string
+	Address         string
+	Email           string
+	BankName        string
+	BankAccountName string
+	BankAccountNo   string
+}
+
 // Transaction always stores a positive amount; direction is implicit in the
 // presence of FromAccountID / ToAccountID:
 //
@@ -36,22 +52,36 @@ type Project struct {
 //	expense   -> FromAccountID set, ToAccountID nil
 //	transfer  -> both set
 type Transaction struct {
-	ID            int64
-	Code          string
-	Date          string // YYYY-MM-DD
-	Description   string
-	CategoryID    sql.NullInt64
-	AmountCents   int64
-	FromAccountID sql.NullInt64
-	ToAccountID   sql.NullInt64
-	ProjectID     sql.NullInt64
-	Note          string
+	ID             int64
+	Code           string
+	Date           string // YYYY-MM-DD
+	Description    string
+	CounterpartyID sql.NullInt64
+	CategoryID     sql.NullInt64
+	AmountCents    int64
+	FromAccountID  sql.NullInt64
+	ToAccountID    sql.NullInt64
+	ProjectID      sql.NullInt64
+	Note           string
 
 	// Joined fields populated by list queries
-	CategoryName    string
-	FromAccountName string
-	ToAccountName   string
-	ProjectName     string
+	CategoryName     string
+	FromAccountName  string
+	ToAccountName    string
+	ProjectName      string
+	CounterpartyName string
+}
+
+type Attachment struct {
+	ID               int64
+	TransactionID    int64
+	StorageKey       string
+	OriginalFilename string
+	ContentType      string
+	SizeBytes        int64
+	UploadedByID     sql.NullInt64
+	CreatedAt        string
+	UploadedByName   string
 }
 
 // Type reports the inferred kind of transaction.

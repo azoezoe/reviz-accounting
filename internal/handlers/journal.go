@@ -31,23 +31,25 @@ func (s *Server) journalList(w http.ResponseWriter, r *http.Request) {
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
+	counterparties, _ := models.ListCounterparties(s.DB, "")
 
 	// Build month options from distinct YYYY-MM in transactions.
 	monthOpts := s.distinctMonths()
 
 	s.render(w, r, "journal_list.html", map[string]any{
-		"Title":        "日記帳",
-		"Crumbs":       []string{"日記帳"},
-		"Transactions": txs,
-		"Total":        total,
-		"Filter":       f,
-		"Categories":   cats,
-		"Accounts":     accs,
-		"Projects":     projs,
-		"MonthOptions": monthOpts,
-		"NextOffset":   f.Offset + pageSize,
-		"PrevOffset":   max(0, f.Offset-pageSize),
-		"Active":       "journal",
+		"Title":          "日記帳",
+		"Crumbs":         []string{"日記帳"},
+		"Transactions":   txs,
+		"Total":          total,
+		"Filter":         f,
+		"Categories":     cats,
+		"Accounts":       accs,
+		"Projects":       projs,
+		"Counterparties": counterparties,
+		"MonthOptions":   monthOpts,
+		"NextOffset":     f.Offset + pageSize,
+		"PrevOffset":     max(0, f.Offset-pageSize),
+		"Active":         "journal",
 	})
 }
 
@@ -72,17 +74,19 @@ func (s *Server) journalNew(w http.ResponseWriter, r *http.Request) {
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
+	counterparties, _ := models.ListCounterparties(s.DB, "")
 	today := time.Now().Format("2006-01-02")
 
 	s.render(w, r, "journal_form.html", map[string]any{
-		"Title":      "新增交易",
-		"Crumbs":     []string{"日記帳", "新增交易"},
-		"Mode":       "new",
-		"Tx":         &models.Transaction{Date: today},
-		"Categories": cats,
-		"Accounts":   accs,
-		"Projects":   projs,
-		"Active":     "journal",
+		"Title":          "新增交易",
+		"Crumbs":         []string{"日記帳", "新增交易"},
+		"Mode":           "new",
+		"Tx":             &models.Transaction{Date: today},
+		"Categories":     cats,
+		"Accounts":       accs,
+		"Projects":       projs,
+		"Counterparties": counterparties,
+		"Active":         "journal",
 	})
 }
 
@@ -96,17 +100,21 @@ func (s *Server) journalEdit(w http.ResponseWriter, r *http.Request) {
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
+	counterparties, _ := models.ListCounterparties(s.DB, "")
+	attachments, _ := models.ListAttachments(s.DB, id)
 
 	s.render(w, r, "journal_form.html", map[string]any{
-		"Title":      "編輯交易",
-		"Crumbs":     []string{"日記帳", "編輯", t.Code},
-		"Mode":       "edit",
-		"Tx":         t,
-		"AmountText": money.FormatCents(t.AmountCents),
-		"Categories": cats,
-		"Accounts":   accs,
-		"Projects":   projs,
-		"Active":     "journal",
+		"Title":          "編輯交易",
+		"Crumbs":         []string{"日記帳", "編輯", t.Code},
+		"Mode":           "edit",
+		"Tx":             t,
+		"AmountText":     money.FormatCents(t.AmountCents),
+		"Categories":     cats,
+		"Accounts":       accs,
+		"Projects":       projs,
+		"Counterparties": counterparties,
+		"Attachments":    attachments,
+		"Active":         "journal",
 	})
 }
 
@@ -115,7 +123,7 @@ func (s *Server) journalCreate(w http.ResponseWriter, r *http.Request) {
 		s.error500(w, err)
 		return
 	}
-	t, err := buildTransactionFromForm(r)
+	t, err := s.buildTransactionFromForm(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -139,7 +147,7 @@ func (s *Server) journalUpdate(w http.ResponseWriter, r *http.Request) {
 		s.error500(w, err)
 		return
 	}
-	t, err := buildTransactionFromForm(r)
+	t, err := s.buildTransactionFromForm(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -161,7 +169,7 @@ func (s *Server) journalDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/journal", http.StatusSeeOther)
 }
 
-func buildTransactionFromForm(r *http.Request) (*models.Transaction, error) {
+func (s *Server) buildTransactionFromForm(r *http.Request) (*models.Transaction, error) {
 	amtCents, err := money.ParseCents(r.FormValue("amount"))
 	if err != nil {
 		return nil, err
@@ -187,15 +195,20 @@ func buildTransactionFromForm(r *http.Request) (*models.Transaction, error) {
 	if _, err := time.Parse("2006-01-02", date); err != nil {
 		return nil, errBadInput("日期格式錯誤")
 	}
+	counterpartyID, err := models.GetOrCreateCounterparty(s.DB, r.FormValue("counterparty"))
+	if err != nil {
+		return nil, err
+	}
 	return &models.Transaction{
-		Date:          date,
-		Description:   r.FormValue("description"),
-		CategoryID:    cat,
-		AmountCents:   amtCents,
-		FromAccountID: from,
-		ToAccountID:   to,
-		ProjectID:     proj,
-		Note:          r.FormValue("note"),
+		Date:           date,
+		Description:    r.FormValue("description"),
+		CounterpartyID: counterpartyID,
+		CategoryID:     cat,
+		AmountCents:    amtCents,
+		FromAccountID:  from,
+		ToAccountID:    to,
+		ProjectID:      proj,
+		Note:           r.FormValue("note"),
 	}, nil
 }
 

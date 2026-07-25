@@ -17,9 +17,9 @@ import (
 )
 
 const (
-	CookieName       = "reviz_session"
-	SessionDuration  = 30 * 24 * time.Hour
-	BcryptCost       = 12
+	CookieName      = "reviz_session"
+	SessionDuration = 30 * 24 * time.Hour
+	BcryptCost      = 12
 )
 
 // Roles in increasing privilege.
@@ -212,7 +212,7 @@ func CreateSession(d *sql.DB, userID int64, userAgent, ip string) (string, error
 	if err != nil {
 		return "", err
 	}
-	_, _ = d.Exec(`UPDATE users SET last_login_at=datetime('now') WHERE id=?`, userID)
+	_, _ = d.Exec(`UPDATE users SET last_login_at=CURRENT_TIMESTAMP::text WHERE id=?`, userID)
 	return sid, nil
 }
 
@@ -258,7 +258,7 @@ func DeleteSessionsForUser(d *sql.DB, userID int64) error {
 
 // PurgeExpiredSessions removes sessions whose expires_at is in the past.
 func PurgeExpiredSessions(d *sql.DB) error {
-	_, err := d.Exec(`DELETE FROM sessions WHERE expires_at < datetime('now')`)
+	_, err := d.Exec(`DELETE FROM sessions WHERE expires_at::timestamptz < NOW()`)
 	return err
 }
 

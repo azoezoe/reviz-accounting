@@ -14,6 +14,7 @@ import (
 	"github.com/hcchien/reviz-accounting/internal/auth"
 	"github.com/hcchien/reviz-accounting/internal/models"
 	"github.com/hcchien/reviz-accounting/internal/money"
+	filestore "github.com/hcchien/reviz-accounting/internal/storage"
 )
 
 // Server wires the DB, templates, and routes.
@@ -21,34 +22,41 @@ type Server struct {
 	DB              *sql.DB
 	templates       map[string]*template.Template
 	SimpanyTemplate []byte // raw .xlsx bytes of the Simpany template
+	Attachments     filestore.Store
 }
 
 // NewServer parses the embedded templates and returns a ready Server.
 // Each page template is parsed in its own template tree alongside base.html,
 // so the page-specific {{define "content"}} blocks do not collide.
-func NewServer(d *sql.DB, embedFS embed.FS) (*Server, error) {
+func NewServer(d *sql.DB, embedFS embed.FS, attachments filestore.Store) (*Server, error) {
 	funcs := template.FuncMap{
-		"money":      money.FormatCentsThousands,
-		"moneyRaw":   money.FormatCents,
-		"dict":       dict,
-		"add":        func(a, b int) int { return a + b },
-		"sub":        func(a, b int) int { return a - b },
-		"mul":        func(a, b int) int { return a * b },
-		"mod":        func(a, b int) int { return a % b },
-		"addi":       func(a, b int) int { return a + b },
-		"divf":       func(a, b int) float64 { return float64(a) / float64(b) },
-		"pct":        func(a, b int64) int { if b == 0 { return 0 }; return int(a * 100 / b) },
-		"seq":        seq,
-		"hasPrefix":  stringHasPrefix,
-		"contains":   stringContains,
-		"yearMonths": yearMonths,
-		"monthLabel": monthLabel,
-		"signClass":  signClass,
-		"toneClass":  toneClass,
-		"groupLabel": groupLabel,
-		"kindLabel":  kindLabel,
-		"int64":      func(n int) int64 { return int64(n) },
-		"intIdx":     func(arr [13]int64, i int) int64 { return arr[i] },
+		"money":    money.FormatCentsThousands,
+		"moneyRaw": money.FormatCents,
+		"dict":     dict,
+		"add":      func(a, b int) int { return a + b },
+		"sub":      func(a, b int) int { return a - b },
+		"mul":      func(a, b int) int { return a * b },
+		"mod":      func(a, b int) int { return a % b },
+		"addi":     func(a, b int) int { return a + b },
+		"divf":     func(a, b int) float64 { return float64(a) / float64(b) },
+		"pct": func(a, b int64) int {
+			if b == 0 {
+				return 0
+			}
+			return int(a * 100 / b)
+		},
+		"seq":            seq,
+		"hasPrefix":      stringHasPrefix,
+		"contains":       stringContains,
+		"yearMonths":     yearMonths,
+		"monthLabel":     monthLabel,
+		"signClass":      signClass,
+		"toneClass":      toneClass,
+		"groupLabel":     groupLabel,
+		"kindLabel":      kindLabel,
+		"int64":          func(n int) int64 { return int64(n) },
+		"intIdx":         func(arr [13]int64, i int) int64 { return arr[i] },
+		"attachmentSize": formatAttachmentSize,
 	}
 	entries, err := fs.ReadDir(embedFS, "web/templates")
 	if err != nil {
@@ -70,7 +78,7 @@ func NewServer(d *sql.DB, embedFS embed.FS) (*Server, error) {
 		}
 		tpls[name] = t
 	}
-	return &Server{DB: d, templates: tpls}, nil
+	return &Server{DB: d, templates: tpls, Attachments: attachments}, nil
 }
 
 // Routes registers all HTTP routes onto the given mux.
@@ -94,9 +102,11 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /journal", view(s.journalList))
 	mux.Handle("GET /journal/new", view(s.journalNew))
 	mux.Handle("GET /journal/{id}/edit", view(s.journalEdit))
+	mux.Handle("GET /attachments/{id}", view(s.attachmentDownload))
 	mux.Handle("GET /accounts", view(s.accountsList))
 	mux.Handle("GET /categories", view(s.categoriesList))
 	mux.Handle("GET /projects", view(s.projectsList))
+	mux.Handle("GET /counterparties", view(s.counterpartiesList))
 	mux.Handle("GET /pnl", view(s.pnl))
 	mux.Handle("GET /settings", view(s.settingsPage))
 	mux.Handle("GET /export/transactions.csv", view(s.exportCSV))
@@ -110,6 +120,8 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /journal", acct(s.journalCreate))
 	mux.Handle("POST /journal/{id}", acct(s.journalUpdate))
 	mux.Handle("POST /journal/{id}/delete", acct(s.journalDelete))
+	mux.Handle("POST /journal/{id}/attachments", acct(s.attachmentUpload))
+	mux.Handle("POST /attachments/{id}/delete", acct(s.attachmentDelete))
 	mux.Handle("POST /accounts", acct(s.accountCreate))
 	mux.Handle("POST /accounts/{id}", acct(s.accountUpdate))
 	mux.Handle("POST /accounts/{id}/delete", acct(s.accountDelete))
@@ -119,6 +131,9 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /projects", acct(s.projectCreate))
 	mux.Handle("POST /projects/{id}", acct(s.projectUpdate))
 	mux.Handle("POST /projects/{id}/delete", acct(s.projectDelete))
+	mux.Handle("POST /counterparties", acct(s.counterpartyCreate))
+	mux.Handle("POST /counterparties/{id}", acct(s.counterpartyUpdate))
+	mux.Handle("POST /counterparties/{id}/delete", acct(s.counterpartyDelete))
 	mux.Handle("POST /settings", acct(s.settingsSave))
 	mux.Handle("POST /import", acct(s.importCSV))
 

@@ -22,7 +22,7 @@
 </div>
 
 <form method="get" class="lg-filter-bar">
-  <input type="text" name="q" value="{{.Filter.SearchText}}" placeholder="搜尋敘述、備註、編號…" class="lg-filter-input">
+  <input type="text" name="q" value="{{.Filter.SearchText}}" placeholder="搜尋交易對象、敘述、備註、編號…" class="lg-filter-input">
   <select name="month" class="lg-filter-select" onchange="this.form.submit()">
     <option value="">全部月份</option>
     {{$cm := .Filter.YearMonth}}
@@ -55,6 +55,7 @@
       <tr>
         <th>編號</th>
         <th>日期</th>
+        <th>交易對象</th>
         <th>敘述</th>
         <th>分類</th>
         <th class="right">金額</th>
@@ -69,6 +70,7 @@
       <tr>
         <td><span class="lg-tx-code">{{.Code}}</span></td>
         <td><span class="lg-tx-date">{{.Date}}</span></td>
+        <td>{{if .CounterpartyName}}<strong style="font-family:var(--font-body-cn); font-weight:500;">{{.CounterpartyName}}</strong>{{else}}<span style="color:var(--text-faint);">—</span>{{end}}</td>
         <td>
           <div class="lg-tx-desc">{{.Description}}</div>
           {{if .Note}}<div class="lg-tx-note">{{.Note}}</div>{{end}}
@@ -112,7 +114,7 @@
         </td>
       </tr>
       {{else}}
-      <tr><td colspan="9">
+      <tr><td colspan="10">
         <div class="lg-empty">
           <p class="lg-empty__title">尚無交易</p>
           <p class="lg-empty__sub"><a href="/journal/new" style="color:var(--text-brand);">新增第一筆 →</a></p>

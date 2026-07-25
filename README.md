@@ -1,12 +1,14 @@
 # Reviz 帳簿
 
-單機 web 版企業/個人記帳，靈感來自 Simpany 雲端帳簿。Go + SQLite，單一 binary，不需資料庫伺服器。
+企業／個人記帳 Web app，靈感來自 Simpany 雲端帳簿。Go + PostgreSQL；可部署到 Cloud Run，單據保存於 GCS。
 
 ## 功能
 
 - **日記帳**：交易 CRUD，支援收入 / 支出 / 帳戶間轉帳。
 - **帳戶總覽**：資產 / 負債分區，自動計算各帳戶餘額與淨值。
-- **分類管理**：收入 / 成本 / 費用 / 股東權益 / 其他。
+- **分類管理**：預載雲端帳簿的收入 / 成本 / 費用分類，也可自行調整。
+- **交易對象**：客戶、供應商與個人可在記帳時自動建立，並集中維護統編與聯絡資料。
+- **單據附件**：每筆交易可附多份 PDF／JPG／PNG／WebP 單據（單檔最多 20 MB）；原始檔保存於 GCS。
 - **專案**：可在交易掛專案，損益表可依專案篩選。
 - **損益表**：依年度、月份自動產出（收入 → 成本 → 毛利 → 費用 → 淨利）。
 - **儀表板**：四張總覽卡 + 每月收支長條圖 + YTD 淨利折線圖 + 前 5 大費用/收入分類。
@@ -16,14 +18,17 @@
 
 ```sh
 go build -o reviz-accounting .
-./reviz-accounting -create-user alice -create-role owner   # 建第一個帳號
-./reviz-accounting                                          # 啟動 web server
+export DATABASE_URL='postgres://USER:PASSWORD@HOST/DB?sslmode=require'
+./reviz-accounting -create-user alice -create-role owner
+./reviz-accounting
 ```
 
-伺服器預設 `http://localhost:8080`，SQLite 檔在 `data/reviz.db`。
+伺服器預設 `http://localhost:8080`；必須提供 `DATABASE_URL`。
+
+本機未設定 `GCS_BUCKET` 時，單據會存在 `data/attachments`；部署到 Cloud Run 時，設定 `GCS_BUCKET` 後會使用 Application Default Credentials 將單據寫到該 bucket 的 `attachments/` 前綴。
 
 ```sh
-./reviz-accounting -addr :9000 -db /path/to/mybook.db
+./reviz-accounting -addr :9000 -db-url "$DATABASE_URL"
 ```
 
 第一次啟動會自動建表並塞入一組預設分類與三個基本帳戶；可在「設定」頁與「分類 / 帳戶」頁中調整。
@@ -56,7 +61,7 @@ go build -o reviz-accounting
 ./reviz-accounting
 ```
 
-SQLite driver 使用 [`modernc.org/sqlite`](https://gitlab.com/cznic/sqlite)（純 Go，無 cgo），可直接交叉編譯。
+使用 [`pgx`](https://github.com/jackc/pgx) 連接 PostgreSQL／Cloud SQL。
 
 ## 資料模型
 
@@ -66,7 +71,8 @@ SQLite driver 使用 [`modernc.org/sqlite`](https://gitlab.com/cznic/sqlite)（�
 | `accounts` | 帳戶（資產 / 負債） |
 | `categories` | 分類（收入/成本/費用/股東權益/其他） |
 | `projects` | 專案 |
-| `transactions` | 交易：日期、敘述、分類、金額（正整數 cents）、from_account、to_account、project、備註 |
+| `counterparties` | 交易對象：名稱、統編、聯絡與銀行資料 |
+| `transactions` | 交易：日期、交易對象、敘述、分類、金額（正整數 cents）、from_account、to_account、project、備註 |
 | `users` | 使用者：username、bcrypt password_hash、role、active、last_login_at |
 | `sessions` | Session：id (32-byte base64-url token)、user_id、expires_at、user_agent、ip |
 
@@ -80,12 +86,12 @@ SQLite driver 使用 [`modernc.org/sqlite`](https://gitlab.com/cznic/sqlite)（�
 ## CSV 欄位
 
 ```
-code,date,description,category,amount,from_account,to_account,project,note
+code,date,counterparty,description,category,amount,from_account,to_account,project,note
 ```
 
 - `date` 格式 `YYYY-MM-DD`
 - `amount` 為正數；方向由 from/to 欄位決定
-- 分類/帳戶/專案以**名稱**對應；找不到對應的 account 該筆會被略過
+- 分類/帳戶/專案以**名稱**對應；`counterparty` 不存在時會自動建立；找不到對應的 account 該筆會被略過
 
 ## Docker
 
@@ -93,17 +99,17 @@ code,date,description,category,amount,from_account,to_account,project,note
 
 ```sh
 docker build -t reviz-accounting .
-docker run --rm -p 8080:8080 -v "$PWD/data:/data" reviz-accounting
+docker run --rm -p 8080:8080 -e DATABASE_URL="$DATABASE_URL" reviz-accounting
 
 # 建第一個帳號（互動輸入密碼）
-docker run --rm -it -v "$PWD/data:/data" reviz-accounting -create-user alice
+docker run --rm -it -e DATABASE_URL="$DATABASE_URL" reviz-accounting -create-user alice
 ```
 
-Container 內預設讀寫 `/data/reviz.db`，所以 `-v <host>:/data` 把資料目錄掛進去。
+Cloud Run 透過 Cloud SQL connection 注入 `DATABASE_URL` secret；GCS bucket 只保存單據原始檔。
 
 ## Cloud Run 部署
 
-整個 pipeline 在 `cloudbuild.yaml`：build image → push 到 Artifact Registry → 部署到 Cloud Run。SQLite 持久化用 GCS bucket 掛到 `/data`，service 鎖死單一實例（min=max=1）避免 SQLite 多 writer locking 問題。
+整個 pipeline 在 `cloudbuild.yaml`：build image → push 到 Artifact Registry → 部署到 Cloud Run。帳務資料在 Cloud SQL PostgreSQL，單據在 GCS，因此 service 可 scale-to-zero。
 
 ### 一次性 setup
 
@@ -120,7 +126,7 @@ gcloud artifacts repositories create $REPO \
 # GCS bucket for SQLite
 gcloud storage buckets create gs://$BUCKET --location=$REGION
 
-# Cloud Build SA 需要的 roles
+# Cloud Build / Cloud Run 預設 service identity 需要的 roles
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
 SA=$PROJECT_NUMBER-compute@developer.gserviceaccount.com
 for role in run.admin iam.serviceAccountUser storage.objectAdmin artifactregistry.writer; do
@@ -128,6 +134,10 @@ for role in run.admin iam.serviceAccountUser storage.objectAdmin artifactregistr
     --member=serviceAccount:$SA --role=roles/$role
 done
 ```
+
+單據使用 Cloud Run service identity 透過官方 Cloud Storage API 寫入 bucket，因此不需要在容器內保存 service-account key。現有的 `roles/storage.objectAdmin` 可運作；實際上只需讀、寫、刪除單據時，可縮小為 bucket 層級的 `roles/storage.objectUser`。
+
+建議為保存超過 7 年的單據設定 bucket lifecycle / retention policy，並另外保留資料庫與 bucket 的備份策略；retention policy 啟用後會限制提早刪除物件，請先依公司保存政策確認。
 
 ### 觸發 build
 

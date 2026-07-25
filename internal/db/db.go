@@ -4,18 +4,20 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
-
-	_ "modernc.org/sqlite"
+	"strings"
 )
 
 //go:embed schema.sql
 var schemaSQL string
 
-// Open opens (or creates) a SQLite database at path and applies the schema.
-// It enables foreign keys and WAL mode.
-func Open(path string) (*sql.DB, error) {
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", path)
-	d, err := sql.Open("sqlite", dsn)
+// Open connects to PostgreSQL (including Cloud SQL through its Unix socket)
+// and applies the idempotent schema. DATABASE_URL is the only database
+// configuration accepted by the application.
+func Open(dsn string) (*sql.DB, error) {
+	if strings.TrimSpace(dsn) == "" {
+		return nil, fmt.Errorf("DATABASE_URL is required")
+	}
+	d, err := sql.Open("reviz-pgx", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -23,16 +25,18 @@ func Open(path string) (*sql.DB, error) {
 		d.Close()
 		return nil, err
 	}
-	if _, err := d.Exec(schemaSQL); err != nil {
-		d.Close()
-		return nil, fmt.Errorf("apply schema: %w", err)
+	for _, statement := range strings.Split(schemaSQL, ";") {
+		if strings.TrimSpace(statement) == "" {
+			continue
+		}
+		if _, err := d.Exec(statement); err != nil {
+			d.Close()
+			return nil, fmt.Errorf("apply schema: %w", err)
+		}
 	}
 	return d, nil
 }
 
-// SeedIfEmpty inserts a default set of categories, settings and a couple of
-// starter accounts when the database is brand new. It is a no-op if any
-// non-trivial data already exists.
 func SeedIfEmpty(d *sql.DB) error {
 	var n int
 	if err := d.QueryRow(`SELECT COUNT(*) FROM accounts`).Scan(&n); err != nil {
@@ -41,78 +45,27 @@ func SeedIfEmpty(d *sql.DB) error {
 	if n > 0 {
 		return nil
 	}
-
 	tx, err := d.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-
-	settings := map[string]string{
-		"company_name": "我的公司",
-		"fiscal_year":  "2026",
-	}
-	for k, v := range settings {
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO settings(key, value) VALUES(?,?)`, k, v); err != nil {
+	for k, v := range map[string]string{"company_name": "我的公司", "fiscal_year": "2026"} {
+		if _, err := tx.Exec(`INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, k, v); err != nil {
 			return err
 		}
 	}
-
-	type catRow struct {
-		name  string
-		group string
-	}
-	cats := []catRow{
-		{"廣告費", "expense"},
-		{"辦公用品", "expense"},
-		{"產品研發", "expense"},
-		{"保險", "expense"},
-		{"薪資", "expense"},
-		{"修繕費用", "expense"},
-		{"外包費用", "expense"},
-		{"交通", "expense"},
-		{"餐飲", "expense"},
-		{"公用事業", "expense"},
-		{"租用費用", "expense"},
-		{"貸款費用", "expense"},
-		{"稅", "expense"},
-		{"郵費", "expense"},
-		{"銀行費用", "expense"},
-		{"其他支出", "expense"},
-		{"商品1成本", "cost"},
-		{"商品2成本", "cost"},
-		{"商品1收入", "income"},
-		{"商品2收入", "income"},
-		{"其他收入", "income"},
-		{"實收資本", "equity"},
-		{"轉帳沖銷", "other"},
-		{"前期結轉", "other"},
-	}
+	type catRow struct{ name, group string }
+	cats := []catRow{{"營業收入 / 銷貨收入 - 軟體開發", "income"}, {"營業收入 / 銷貨收入 - 維護費", "income"}, {"營業收入 / 銷貨收入 - 諮詢會議", "income"}, {"勞務收入 / 設計收入 / 技術服務收入", "income"}, {"其他營業收入 - 其他勞務收入", "income"}, {"非營業收入 - 投資收入", "income"}, {"非營業收入 - 利息收入", "income"}, {"銷貨成本 - 商品種類 1", "cost"}, {"銷貨成本 - 商品種類 2", "cost"}, {"銷貨成本 - 商品種類 3", "cost"}, {"勞務成本 / 設計成本 / 技術服務成本", "cost"}, {"其他勞務成本", "cost"}, {"推銷費用 / 廣告費用", "expense"}, {"薪資費用", "expense"}, {"租金費用", "expense"}, {"差旅費用", "expense"}, {"郵寄費用", "expense"}, {"修繕費用", "expense"}, {"文具用品 / 辦公用品費用", "expense"}, {"水電瓦斯費", "expense"}, {"保險費用", "expense"}, {"交際費用", "expense"}, {"稅費", "expense"}, {"伙食費", "expense"}, {"員工福利費用", "expense"}, {"佣金支出", "expense"}, {"呆帳損失", "expense"}, {"利息費用", "expense"}, {"投資損失", "expense"}, {"財務費用 / 銀行費用", "expense"}, {"其他費用", "expense"}, {"雲端服務費用", "expense"}, {"軟體使用費用", "expense"}, {"實收資本", "equity"}, {"轉帳沖銷", "other"}, {"前期結轉", "other"}}
 	for i, c := range cats {
-		if _, err := tx.Exec(
-			`INSERT INTO categories(name, group_name, sort_order) VALUES(?,?,?)`,
-			c.name, c.group, i,
-		); err != nil {
+		if _, err := tx.Exec(`INSERT INTO categories(name,group_name,sort_order) VALUES($1,$2,$3)`, c.name, c.group, i); err != nil {
 			return err
 		}
 	}
-
-	accs := []struct {
-		name string
-		kind string
-	}{
-		{"銀行帳戶", "asset"},
-		{"零用金", "asset"},
-		{"信用卡", "liability"},
-	}
-	for i, a := range accs {
-		if _, err := tx.Exec(
-			`INSERT INTO accounts(name, kind, sort_order) VALUES(?,?,?)`,
-			a.name, a.kind, i,
-		); err != nil {
+	for i, a := range []struct{ name, kind string }{{"銀行帳戶", "asset"}, {"零用金", "asset"}, {"信用卡", "liability"}} {
+		if _, err := tx.Exec(`INSERT INTO accounts(name,kind,sort_order) VALUES($1,$2,$3)`, a.name, a.kind, i); err != nil {
 			return err
 		}
 	}
-
 	return tx.Commit()
 }
