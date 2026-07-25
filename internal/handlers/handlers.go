@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/hcchien/reviz-accounting/internal/auth"
+	"github.com/hcchien/reviz-accounting/internal/mcp"
 	"github.com/hcchien/reviz-accounting/internal/models"
 	"github.com/hcchien/reviz-accounting/internal/money"
 	filestore "github.com/hcchien/reviz-accounting/internal/storage"
@@ -89,6 +90,14 @@ func NewServer(d *sql.DB, embedFS embed.FS, attachments filestore.Store) (*Serve
 //   - accountant+       : all POST routes that mutate accounting data
 //   - owner only        : /users and POST /users/* (user management)
 func (s *Server) Routes(mux *http.ServeMux) {
+	mcpServer := &mcp.Server{DB: s.DB}
+	mux.Handle("GET /.well-known/oauth-authorization-server", http.HandlerFunc(mcpServer.Metadata))
+	mux.Handle("GET /.well-known/oauth-protected-resource", http.HandlerFunc(mcpServer.ProtectedResource))
+	mux.Handle("POST /oauth/register", http.HandlerFunc(mcpServer.Register))
+	mux.Handle("GET /oauth/authorize", http.HandlerFunc(mcpServer.Authorize))
+	mux.Handle("POST /oauth/authorize", auth.RequireAuth(http.HandlerFunc(mcpServer.Approve)))
+	mux.Handle("POST /oauth/token", http.HandlerFunc(mcpServer.Token))
+	mux.Handle("/mcp", http.HandlerFunc(mcpServer.MCP))
 	// public
 	mux.Handle("GET /login", http.HandlerFunc(s.loginPage))
 	mux.Handle("POST /login", http.HandlerFunc(s.loginSubmit))

@@ -39,6 +39,22 @@ CREATE TABLE IF NOT EXISTS transaction_attachments (
  original_filename TEXT NOT NULL, content_type TEXT NOT NULL, size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
  uploaded_by_id BIGINT REFERENCES users(id) ON DELETE SET NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
 );
+CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
+ id TEXT PRIMARY KEY, redirect_uris TEXT NOT NULL, client_name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
+);
+CREATE TABLE IF NOT EXISTS mcp_authorization_codes (
+ code_hash TEXT PRIMARY KEY, client_id TEXT NOT NULL REFERENCES mcp_oauth_clients(id) ON DELETE CASCADE,
+ user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, redirect_uri TEXT NOT NULL, code_challenge TEXT NOT NULL,
+ expires_at TEXT NOT NULL, used_at TEXT
+);
+CREATE TABLE IF NOT EXISTS mcp_access_tokens (
+ token_hash TEXT PRIMARY KEY, client_id TEXT NOT NULL REFERENCES mcp_oauth_clients(id) ON DELETE CASCADE,
+ user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, expires_at TEXT NOT NULL, revoked_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
+);
+CREATE TABLE IF NOT EXISTS mcp_audit_log (
+ id BIGSERIAL PRIMARY KEY, user_id BIGINT REFERENCES users(id) ON DELETE SET NULL, client_id TEXT NOT NULL DEFAULT '', tool_name TEXT NOT NULL,
+ outcome TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
+);
 CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(tx_date);
 CREATE INDEX IF NOT EXISTS idx_tx_category ON transactions(category_id);
 CREATE INDEX IF NOT EXISTS idx_tx_from ON transactions(from_account_id);
@@ -48,3 +64,4 @@ CREATE INDEX IF NOT EXISTS idx_tx_counterparty ON transactions(counterparty_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_attachments_transaction ON transaction_attachments(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_mcp_tokens_user ON mcp_access_tokens(user_id);
