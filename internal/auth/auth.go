@@ -84,14 +84,14 @@ func CreateUser(d *sql.DB, username, password, role string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	res, err := d.Exec(
-		`INSERT INTO users(username, password_hash, role) VALUES(?,?,?)`,
+	var id int64
+	err = d.QueryRow(
+		`INSERT INTO users(username, password_hash, role) VALUES(?,?,?) RETURNING id`,
 		username, hash, role,
-	)
+	).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
-	id, _ := res.LastInsertId()
 	return GetUser(d, id)
 }
 

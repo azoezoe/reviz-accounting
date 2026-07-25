@@ -82,14 +82,9 @@ func GetAccount(d *sql.DB, id int64) (*Account, error) {
 }
 
 func CreateAccount(d *sql.DB, a *Account) (int64, error) {
-	res, err := d.Exec(
-		`INSERT INTO accounts(name, kind, active, sort_order) VALUES(?,?,?,?)`,
-		a.Name, a.Kind, boolInt(a.Active), a.SortOrder,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	var id int64
+	err := d.QueryRow(`INSERT INTO accounts(name, kind, active, sort_order) VALUES(?,?,?,?) RETURNING id`, a.Name, a.Kind, boolInt(a.Active), a.SortOrder).Scan(&id)
+	return id, err
 }
 
 func UpdateAccount(d *sql.DB, a *Account) error {
@@ -181,14 +176,9 @@ func GetCategory(d *sql.DB, id int64) (*Category, error) {
 }
 
 func CreateCategory(d *sql.DB, c *Category) (int64, error) {
-	res, err := d.Exec(
-		`INSERT INTO categories(name, group_name, sort_order) VALUES(?,?,?)`,
-		c.Name, c.Group, c.SortOrder,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	var id int64
+	err := d.QueryRow(`INSERT INTO categories(name, group_name, sort_order) VALUES(?,?,?) RETURNING id`, c.Name, c.Group, c.SortOrder).Scan(&id)
+	return id, err
 }
 
 func UpdateCategory(d *sql.DB, c *Category) error {
@@ -237,14 +227,9 @@ func GetProject(d *sql.DB, id int64) (*Project, error) {
 }
 
 func CreateProject(d *sql.DB, p *Project) (int64, error) {
-	res, err := d.Exec(
-		`INSERT INTO projects(name, start_date, end_date, note) VALUES(?,?,?,?)`,
-		p.Name, nullableDate(p.StartDate), nullableDate(p.EndDate), p.Note,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	var id int64
+	err := d.QueryRow(`INSERT INTO projects(name, start_date, end_date, note) VALUES(?,?,?,?) RETURNING id`, p.Name, nullableDate(p.StartDate), nullableDate(p.EndDate), p.Note).Scan(&id)
+	return id, err
 }
 
 func UpdateProject(d *sql.DB, p *Project) error {
@@ -288,11 +273,9 @@ func ListCounterparties(d *sql.DB, search string) ([]Counterparty, error) {
 }
 
 func CreateCounterparty(d *sql.DB, c *Counterparty) (int64, error) {
-	res, err := d.Exec(`INSERT INTO counterparties(name,tax_id,contact_name,phone,address,email,bank_name,bank_account_name,bank_account_no) VALUES(?,?,?,?,?,?,?,?,?)`, c.Name, c.TaxID, c.ContactName, c.Phone, c.Address, c.Email, c.BankName, c.BankAccountName, c.BankAccountNo)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	var id int64
+	err := d.QueryRow(`INSERT INTO counterparties(name,tax_id,contact_name,phone,address,email,bank_name,bank_account_name,bank_account_no) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id`, c.Name, c.TaxID, c.ContactName, c.Phone, c.Address, c.Email, c.BankName, c.BankAccountName, c.BankAccountNo).Scan(&id)
+	return id, err
 }
 
 func UpdateCounterparty(d *sql.DB, c *Counterparty) error {
@@ -430,18 +413,16 @@ func GetTransaction(d *sql.DB, id int64) (*Transaction, error) {
 }
 
 func CreateTransaction(d *sql.DB, t *Transaction) (int64, error) {
-	res, err := d.Exec(`
+	var id int64
+	err := d.QueryRow(`
         INSERT INTO transactions(
 			code, tx_date, description, counterparty_id, category_id, amount_cents,
             from_account_id, to_account_id, project_id, note
-		) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		) VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING id`,
 		t.Code, t.Date, t.Description, t.CounterpartyID, t.CategoryID, t.AmountCents,
 		t.FromAccountID, t.ToAccountID, t.ProjectID, t.Note,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	).Scan(&id)
+	return id, err
 }
 
 func UpdateTransaction(d *sql.DB, t *Transaction) error {
@@ -491,11 +472,9 @@ func GetAttachment(d *sql.DB, id int64) (*Attachment, error) {
 }
 
 func CreateAttachment(d *sql.DB, a *Attachment) (int64, error) {
-	res, err := d.Exec(`INSERT INTO transaction_attachments(transaction_id,storage_key,original_filename,content_type,size_bytes,uploaded_by_id) VALUES(?,?,?,?,?,?)`, a.TransactionID, a.StorageKey, a.OriginalFilename, a.ContentType, a.SizeBytes, a.UploadedByID)
-	if err != nil {
-		return 0, err
-	}
-	return res.LastInsertId()
+	var id int64
+	err := d.QueryRow(`INSERT INTO transaction_attachments(transaction_id,storage_key,original_filename,content_type,size_bytes,uploaded_by_id) VALUES(?,?,?,?,?,?) RETURNING id`, a.TransactionID, a.StorageKey, a.OriginalFilename, a.ContentType, a.SizeBytes, a.UploadedByID).Scan(&id)
+	return id, err
 }
 
 func DeleteAttachment(d *sql.DB, id int64) error {
