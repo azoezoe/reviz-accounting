@@ -29,7 +29,4 @@ COPY --from=build /out/reviz-accounting /app/reviz-accounting
 ENV PORT=8080
 EXPOSE 8080
 
-# Default DB path: /data/reviz.db. In Cloud Run we mount a GCS bucket here.
-# For local docker runs, mount a host directory: `-v $PWD/data:/data`.
 ENTRYPOINT ["/app/reviz-accounting"]
-CMD ["-db", "/data/reviz.db"]

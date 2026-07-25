@@ -37,12 +37,15 @@ func main() {
 	}
 	var (
 		addr           = flag.String("addr", defaultAddr, "HTTP listen address (overrides $PORT)")
-		dbURL          = flag.String("db-url", os.Getenv("DATABASE_URL"), "PostgreSQL connection URL (or $DATABASE_URL)")
+		dbURL          = flag.String("db-url", "", "PostgreSQL connection URL (or $DATABASE_URL)")
 		createUser     = flag.String("create-user", "", "Create a user with this username (prompts for password) and exit")
 		createRole     = flag.String("create-role", "owner", "Role for -create-user (owner|accountant|viewer)")
 		attachmentsDir = flag.String("attachments-dir", "data/attachments", "Local attachment directory (used when $GCS_BUCKET is unset)")
 	)
 	flag.Parse()
+	if *dbURL == "" {
+		*dbURL = os.Getenv("DATABASE_URL")
+	}
 
 	d, err := db.Open(*dbURL)
 	if err != nil {
