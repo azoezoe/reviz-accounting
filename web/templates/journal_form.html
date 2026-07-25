@@ -17,9 +17,9 @@
   </div>
 </div>
 
-<form method="post" action="{{if eq $mode "edit"}}/journal/{{$tx.ID}}{{else}}/journal{{end}}"
-      style="display:grid; grid-template-columns: 1fr 320px; gap: 24px; align-items:start;">
+<div style="display:grid; grid-template-columns: 1fr 320px; gap: 24px; align-items:start;">
 
+  <form id="transaction-form" method="post" action="{{if eq $mode "edit"}}/journal/{{$tx.ID}}{{else}}/journal{{end}}">
   <section class="lg-panel" style="display:flex; flex-direction:column; gap:16px;">
     <!-- amount + date row -->
     <div class="lg-field">
@@ -102,6 +102,7 @@
       </button>
     </div>
   </section>
+  </form>
 
   <aside style="display:flex; flex-direction:column; gap:16px; position:sticky; top:80px;">
     <details class="lg-tip" open>
@@ -146,6 +147,6 @@
     </section>
     {{end}}
   </aside>
-</form>
+</div>
 {{end}}
 {{template "base" .}}

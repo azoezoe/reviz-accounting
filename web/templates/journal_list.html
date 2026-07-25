@@ -68,8 +68,8 @@
     <tbody>
       {{range .Transactions}}
       <tr>
-        <td><span class="lg-tx-code">{{.Code}}</span></td>
-        <td><span class="lg-tx-date">{{.Date}}</span></td>
+        <td><a href="/journal/{{.ID}}/edit" class="lg-tx-code" style="color:var(--text-brand); text-decoration:none;">{{.Code}}</a></td>
+        <td><a href="/journal/{{.ID}}/edit" class="lg-tx-date" style="color:inherit; text-decoration:none;">{{.Date}}</a></td>
         <td>{{if .CounterpartyName}}<strong style="font-family:var(--font-body-cn); font-weight:500;">{{.CounterpartyName}}</strong>{{else}}<span style="color:var(--text-faint);">—</span>{{end}}</td>
         <td>
           <div class="lg-tx-desc">{{.Description}}</div>
@@ -102,6 +102,7 @@
         </td>
         <td class="right">
           <span class="lg-row-actions">
+            <a href="/journal/{{.ID}}/edit" class="lg-btn-link" title="查看交易" style="font-size:12px;">查看</a>
             <a href="/journal/{{.ID}}/edit" class="lg-row-action" title="編輯">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6"/><path d="m18 2 4 4-10 10H8v-4Z"/></svg>
             </a>
