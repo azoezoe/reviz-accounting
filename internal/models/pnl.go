@@ -3,6 +3,7 @@ package models
 import (
 	"database/sql"
 	"fmt"
+	"sort"
 )
 
 // PnLRow represents a single category line in the P&L statement.
@@ -115,6 +116,18 @@ func ComputePnL(d *sql.DB, year int, project int64) (*PnL, error) {
 	addTotals(p.Income, &p.IncomeTotal)
 	addTotals(p.Cost, &p.CostTotal)
 	addTotals(p.Expense, &p.ExpenseTotal)
+	// Put categories with activity first. The seeded chart of accounts contains
+	// useful zero-balance placeholders; displaying those before actual costs
+	// makes a report look empty even when its totals are correct.
+	for _, group := range []*[]PnLRow{&p.Income, &p.Cost, &p.Expense} {
+		sort.SliceStable(*group, func(i, j int) bool {
+			a, b := (*group)[i], (*group)[j]
+			if (a.YTD != 0) != (b.YTD != 0) {
+				return a.YTD != 0
+			}
+			return a.CategoryName < b.CategoryName
+		})
+	}
 	for i := 0; i < 13; i++ {
 		p.GrossProfit[i] = p.IncomeTotal[i] - p.CostTotal[i]
 		p.NetProfit[i] = p.GrossProfit[i] - p.ExpenseTotal[i]
