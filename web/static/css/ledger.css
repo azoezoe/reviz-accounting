@@ -486,6 +486,11 @@
   font-family: var(--font-body-cn);
   font-size: 13.5px;
 }
+.lg-table-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.lg-table--journal { min-width: 1160px; }
 .lg-table thead th {
   font-family: var(--font-sans);
   font-size: 10.5px;

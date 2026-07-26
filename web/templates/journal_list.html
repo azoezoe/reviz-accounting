@@ -49,8 +49,8 @@
   </div>
 </form>
 
-<section class="lg-panel lg-panel--flush" style="overflow: hidden;">
-  <table class="lg-table">
+<section class="lg-panel lg-panel--flush lg-table-scroll">
+  <table class="lg-table lg-table--journal">
     <thead>
       <tr>
         <th>編號</th>
@@ -128,10 +128,10 @@
 
 {{if gt .Total 50}}
 <div style="display:flex; justify-content:space-between; align-items:center; padding: 12px 4px; font-family:var(--font-sans); font-size:13px; color:var(--text-muted);">
-  <a href="?offset={{.PrevOffset}}{{if .Filter.SearchText}}&q={{.Filter.SearchText}}{{end}}{{if .Filter.YearMonth}}&month={{.Filter.YearMonth}}{{end}}"
+  <a href="?offset={{.PrevOffset}}{{if .Filter.SearchText}}&q={{.Filter.SearchText}}{{end}}{{if .Filter.YearMonth}}&month={{.Filter.YearMonth}}{{end}}{{if .Filter.CategoryID}}&category_id={{.Filter.CategoryID}}{{end}}{{if .Filter.AccountID}}&account_id={{.Filter.AccountID}}{{end}}{{if .Filter.ProjectID}}&project_id={{.Filter.ProjectID}}{{end}}"
      class="lg-btn-ghost" style="{{if eq .Filter.Offset 0}}opacity:0.4; pointer-events:none;{{end}}">← 上一頁</a>
   <span>第 {{add .Filter.Offset 1}}–{{add .Filter.Offset 50}} 筆</span>
-  <a href="?offset={{.NextOffset}}{{if .Filter.SearchText}}&q={{.Filter.SearchText}}{{end}}{{if .Filter.YearMonth}}&month={{.Filter.YearMonth}}{{end}}"
+  <a href="?offset={{.NextOffset}}{{if .Filter.SearchText}}&q={{.Filter.SearchText}}{{end}}{{if .Filter.YearMonth}}&month={{.Filter.YearMonth}}{{end}}{{if .Filter.CategoryID}}&category_id={{.Filter.CategoryID}}{{end}}{{if .Filter.AccountID}}&account_id={{.Filter.AccountID}}{{end}}{{if .Filter.ProjectID}}&project_id={{.Filter.ProjectID}}{{end}}"
      class="lg-btn-ghost" style="{{if ge .NextOffset .Total}}opacity:0.4; pointer-events:none;{{end}}">下一頁 →</a>
 </div>
 {{end}}
