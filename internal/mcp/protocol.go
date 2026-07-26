@@ -97,6 +97,11 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 	case "list_projects":
 		v, e := models.ListProjects(s.DB)
 		return content(v, e)
+	case "create_project":
+		if !u.AtLeast(auth.RoleAccountant) {
+			return nil, fmtErr("權限不足")
+		}
+		return s.createProject(a)
 	case "get_project_budget":
 		return s.projectBudget(numID(a, "project_id"))
 	case "list_transactions":
@@ -160,6 +165,7 @@ func tools() []map[string]any {
 		{"name": "list_accounts", "description": "列出帳戶", "inputSchema": obj},
 		{"name": "list_categories", "description": "列出收入、成本與費用分類", "inputSchema": obj},
 		{"name": "list_projects", "description": "列出專案", "inputSchema": obj},
+		{"name": "create_project", "description": "建立專案。傳 name；可選 start_date、end_date（YYYY-MM-DD）與 note。", "inputSchema": req("name")},
 		{"name": "get_project_budget", "description": "取得專案的總預算、請款批次、各對象預計/實際及公司共用池。傳 project_id。", "inputSchema": req("project_id")},
 		{"name": "list_transactions", "description": "查詢交易，可帶 year_month、search、limit", "inputSchema": obj},
 		{"name": "create_transaction", "description": "新增交易；amount 是分，傳 date、description、amount、from_account_id/to_account_id、category_id、counterparty、note。", "inputSchema": req("date", "description", "amount")},
@@ -209,6 +215,23 @@ func (s *Server) uploadReceipt(u *auth.User, a map[string]any) (any, error) {
 		return nil, err
 	}
 	return content(map[string]any{"attachment_id": id, "transaction_id": txID, "filename": filename, "size_bytes": len(b)}, nil)
+}
+
+func (s *Server) createProject(a map[string]any) (any, error) {
+	name := strings.TrimSpace(str(a, "name"))
+	if name == "" {
+		return nil, fmtErr("name 必填")
+	}
+	id, err := models.CreateProject(s.DB, &models.Project{
+		Name:      name,
+		StartDate: models.NullStringFrom(str(a, "start_date")),
+		EndDate:   models.NullStringFrom(str(a, "end_date")),
+		Note:      str(a, "note"),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return content(map[string]any{"id": id, "name": name}, nil)
 }
 
 func (s *Server) projectBudget(projectID int64) (any, error) {
