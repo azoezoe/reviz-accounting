@@ -116,6 +116,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /categories", view(s.categoriesList))
 	mux.Handle("GET /projects", view(s.projectsList))
 	mux.Handle("GET /projects/{id}/budget", view(s.projectBudgetPage))
+	mux.Handle("GET /projects/{id}/summary", view(s.projectSummary))
 	mux.Handle("GET /counterparties", view(s.counterpartiesList))
 	mux.Handle("GET /pnl", view(s.pnl))
 	mux.Handle("GET /settings", view(s.settingsPage))

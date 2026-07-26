@@ -102,7 +102,7 @@
         <td>{{if .ToAccountName}}<span style="font-family:var(--font-body-cn); font-size:13px;">{{.ToAccountName}}</span>{{if .HasToBalance}}<span class="lg-tx-balance">餘額 {{money .ToBalanceAfter}}</span>{{end}}{{end}}</td>
         <td>
           {{if .ProjectName}}
-            <span class="lg-cat" style="background:var(--accent-soft); color:var(--text-brand);">{{.ProjectName}}</span>
+            <a href="/projects/{{.ProjectID.Int64}}/budget" class="lg-cat lg-project-link" data-project-id="{{.ProjectID.Int64}}" style="background:var(--accent-soft); color:var(--text-brand);">{{.ProjectName}}</a>
           {{else}}
             <span style="color:var(--text-faint); font-size:12px;">—</span>
           {{end}}
@@ -142,5 +142,49 @@
      class="lg-btn-ghost" style="{{if ge .NextOffset .Total}}opacity:0.4; pointer-events:none;{{end}}">下一頁 →</a>
 </div>
 {{end}}
+
+<div id="project-drawer-overlay" class="lg-overlay lg-project-drawer-overlay" hidden>
+  <aside class="lg-drawer" role="dialog" aria-modal="true" aria-labelledby="project-drawer-title">
+    <div class="lg-drawer__head"><div><h2 id="project-drawer-title" class="lg-drawer__title">專案</h2><p id="project-drawer-subtitle" class="lg-drawer__sub"></p></div><button id="project-drawer-close" class="lg-icon-btn" type="button" aria-label="關閉">×</button></div>
+    <div id="project-drawer-body" class="lg-drawer__body"></div>
+    <div class="lg-drawer__footer"><a id="project-drawer-budget-link" class="lg-btn-primary" href="#">開啟完整預算</a></div>
+  </aside>
+</div>
+<script>
+(() => {
+  const overlay = document.getElementById('project-drawer-overlay');
+  const title = document.getElementById('project-drawer-title');
+  const subtitle = document.getElementById('project-drawer-subtitle');
+  const body = document.getElementById('project-drawer-body');
+  const budgetLink = document.getElementById('project-drawer-budget-link');
+  const money = cents => new Intl.NumberFormat('zh-TW', {style:'currency', currency:'TWD', maximumFractionDigits:0}).format((cents || 0) / 100);
+  const text = value => document.createTextNode(value);
+  const row = (label, value) => { const el = document.createElement('div'); el.className = 'lg-project-drawer-row'; const a = document.createElement('span'); a.textContent = label; const b = document.createElement('strong'); b.textContent = value; el.append(a, b); return el; };
+  const close = () => { overlay.hidden = true; body.replaceChildren(); };
+  document.getElementById('project-drawer-close').addEventListener('click', close);
+  overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !overlay.hidden) close(); });
+  document.querySelectorAll('.lg-project-link').forEach(link => link.addEventListener('click', async e => {
+    e.preventDefault();
+    const id = link.dataset.projectId;
+    overlay.hidden = false; title.textContent = link.textContent; subtitle.textContent = '載入專案資料…'; body.replaceChildren(text('載入中…'));
+    budgetLink.href = '/projects/' + id + '/budget';
+    try {
+      const response = await fetch('/projects/' + id + '/summary', {headers:{Accept:'application/json'}});
+      if (!response.ok) throw new Error('load failed');
+      const data = await response.json();
+      title.textContent = data.project.name;
+      subtitle.textContent = [data.project.start_date, data.project.end_date].filter(Boolean).join(' — ') || '專案摘要';
+      const summary = document.createElement('section'); summary.className = 'lg-project-drawer-section';
+      summary.append(row('總預算', money(data.budget.total_cents)), row('已收款', money(data.budget.actual_income_cents)), row('本專案公司保留', money(data.budget.actual_reserve_cents)), row('公司共用池餘額', money(data.budget.company_pool_cents)));
+      body.replaceChildren(summary);
+      if (data.project.note) { const note = document.createElement('p'); note.className='lg-project-drawer-note'; note.textContent=data.project.note; body.append(note); }
+      const heading = document.createElement('h3'); heading.className='lg-panel__title'; heading.textContent='請款批次'; body.append(heading);
+      if (!data.milestones.length) { const empty=document.createElement('p'); empty.className='lg-panel__sub'; empty.textContent='尚未建立請款批次'; body.append(empty); return; }
+      data.milestones.forEach(m => { const section=document.createElement('section'); section.className='lg-project-drawer-section'; const h=document.createElement('h4'); h.textContent=m.name; section.append(h, row('預計／已收', money(m.planned_income_cents)+' ／ '+money(m.actual_income_cents)), row('公司已保留', money(m.actual_reserve_cents))); m.allocations.forEach(a => section.append(row((a.kind === 'company' ? '公司保留' : '夥伴') + ' · ' + a.name, a.kind === 'company' ? money(a.planned_cents) : money(a.planned_cents)+' ／ 已付 '+money(a.actual_cents)))); body.append(section); });
+    } catch (_) { subtitle.textContent = ''; body.replaceChildren(text('無法載入專案資料，請稍後重試。')); }
+  }));
+})();
+</script>
 {{end}}
 {{template "base" .}}

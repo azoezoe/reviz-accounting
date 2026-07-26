@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/hcchien/reviz-accounting/internal/models"
@@ -18,6 +19,68 @@ func (s *Server) projectsList(w http.ResponseWriter, r *http.Request) {
 		"Crumbs":   []string{"專案"},
 		"Projects": projs,
 		"Active":   "projects",
+	})
+}
+
+// projectSummary is a compact, read-only representation used by the journal
+// drawer. Keeping it separate avoids rendering the full budget editor inside
+// every journal row.
+func (s *Server) projectSummary(w http.ResponseWriter, r *http.Request) {
+	id := parseInt64(r.PathValue("id"))
+	p, err := models.GetProject(s.DB, id)
+	if err != nil {
+		http.Error(w, "找不到專案", http.StatusNotFound)
+		return
+	}
+	b, err := models.GetProjectBudget(s.DB, id)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	ms, err := models.ListMilestones(s.DB, id)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	actuals, err := models.GetProjectBudgetActuals(s.DB, id)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	type allocation struct {
+		Name    string `json:"name"`
+		Kind    string `json:"kind"`
+		Planned int64  `json:"planned_cents"`
+		Actual  int64  `json:"actual_cents"`
+	}
+	type milestone struct {
+		Name          string       `json:"name"`
+		PlannedIncome int64        `json:"planned_income_cents"`
+		ActualIncome  int64        `json:"actual_income_cents"`
+		ActualReserve int64        `json:"actual_reserve_cents"`
+		Allocations   []allocation `json:"allocations"`
+	}
+	var actualIncome, actualReserve int64
+	out := make([]milestone, 0, len(ms))
+	for _, m := range ms {
+		allocations, e := models.ListBudgetAllocations(s.DB, m.ID)
+		if e != nil {
+			s.error500(w, e)
+			return
+		}
+		view := milestone{Name: m.Name, PlannedIncome: m.PlannedIncomeCents, ActualIncome: actuals.IncomeByMilestone[m.ID], ActualReserve: actuals.ReserveByMilestone[m.ID]}
+		actualIncome += view.ActualIncome
+		actualReserve += view.ActualReserve
+		for _, a := range allocations {
+			view.Allocations = append(view.Allocations, allocation{Name: a.RecipientName, Kind: a.RecipientKind, Planned: a.PlannedAmountCents, Actual: actuals.PaidByAllocation[a.ID]})
+		}
+		out = append(out, view)
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"project":    map[string]any{"id": p.ID, "name": p.Name, "start_date": p.StartDate.String, "end_date": p.EndDate.String, "note": p.Note},
+		"budget":     map[string]any{"total_cents": b.TotalAmountCents, "actual_income_cents": actualIncome, "actual_reserve_cents": actualReserve, "company_pool_cents": actuals.GlobalCompanyReserve - actuals.CompanySharedCost},
+		"milestones": out,
 	})
 }
 
