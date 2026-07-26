@@ -274,12 +274,9 @@ func (s *Server) projectBudget(projectID int64) (any, error) {
 		report = append(report, milestoneReport{Milestone: m, Allocations: allocations, ActualIncome: actual.IncomeByMilestone[m.ID], ActualReserve: actual.ReserveByMilestone[m.ID], ActualPaid: paid})
 	}
 	return content(map[string]any{
-		"project":                      p,
-		"budget":                       b,
-		"milestones":                   report,
-		"global_company_reserve_cents": actual.GlobalCompanyReserve,
-		"company_shared_cost_cents":    actual.CompanySharedCost,
-		"company_pool_balance_cents":   actual.GlobalCompanyReserve - actual.CompanySharedCost,
+		"project":    p,
+		"budget":     b,
+		"milestones": report,
 	}, nil)
 }
 

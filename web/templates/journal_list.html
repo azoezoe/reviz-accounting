@@ -176,7 +176,7 @@
       title.textContent = data.project.name;
       subtitle.textContent = [data.project.start_date, data.project.end_date].filter(Boolean).join(' — ') || '專案摘要';
       const summary = document.createElement('section'); summary.className = 'lg-project-drawer-section';
-      summary.append(row('總預算', money(data.budget.total_cents)), row('已收款', money(data.budget.actual_income_cents)), row('本專案公司保留', money(data.budget.actual_reserve_cents)), row('公司共用池餘額', money(data.budget.company_pool_cents)));
+      summary.append(row('總預算', money(data.budget.total_cents)), row('已收款', money(data.budget.actual_income_cents)), row('本專案公司保留', money(data.budget.actual_reserve_cents)));
       body.replaceChildren(summary);
       if (data.project.note) { const note = document.createElement('p'); note.className='lg-project-drawer-note'; note.textContent=data.project.note; body.append(note); }
       const heading = document.createElement('h3'); heading.className='lg-panel__title'; heading.textContent='請款批次'; body.append(heading);
