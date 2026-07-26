@@ -12,7 +12,7 @@
 <div class="lg-3grid" style="margin-bottom:20px;">
   <section class="lg-panel" style="padding:18px 20px;"><p class="lg-panel__sub">本專案已收款</p><h2 style="margin:7px 0 0;">{{money .ActualIncome}}</h2></section>
   <section class="lg-panel" style="padding:18px 20px;"><p class="lg-panel__sub">公司保留（本專案）</p><h2 style="margin:7px 0 0;">{{money .ActualReserve}}</h2><p class="lg-panel__sub" style="margin-bottom:0;">預計 {{money .PlannedCompany}}</p></section>
-  <section class="lg-panel" style="padding:18px 20px;"><p class="lg-panel__sub">公司共用池餘額</p><h2 style="margin:7px 0 0;">{{money .CompanyPoolBalance}}</h2><p class="lg-panel__sub" style="margin-bottom:0;">共用支出 {{money .CompanySharedCost}}</p></section>
+  <section class="lg-panel" style="padding:18px 20px;"><p class="lg-panel__sub">公司共用池餘額（全專案）</p><h2 style="margin:7px 0 0;">{{money .CompanyPoolBalance}}</h2><p class="lg-panel__sub" style="margin-bottom:0;">保留 {{money .GlobalCompanyReserve}} · 共用支出 {{money .CompanySharedCost}}</p></section>
 </div>
 
 <section class="lg-panel">

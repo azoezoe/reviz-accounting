@@ -25,10 +25,11 @@ type BudgetPosting struct {
 // ProjectBudgetActuals is deliberately calculated from journal postings.  It
 // never stores a second, manually maintained "actual" balance.
 type ProjectBudgetActuals struct {
-	IncomeByMilestone  map[int64]int64
-	ReserveByMilestone map[int64]int64
-	PaidByAllocation   map[int64]int64
-	CompanySharedCost  int64
+	IncomeByMilestone    map[int64]int64
+	ReserveByMilestone   map[int64]int64
+	PaidByAllocation     map[int64]int64
+	GlobalCompanyReserve int64
+	CompanySharedCost    int64
 }
 
 func GetProjectBudget(d *sql.DB, projectID int64) (*ProjectBudget, error) {
@@ -192,6 +193,9 @@ func GetProjectBudgetActuals(d *sql.DB, projectID int64) (ProjectBudgetActuals, 
 		a.PaidByAllocation[allocationID] = amount
 	}
 	if err := rows.Err(); err != nil {
+		return a, err
+	}
+	if err = d.QueryRow(`SELECT COALESCE(SUM(amount_cents),0) FROM transaction_budget_allocations WHERE allocation_kind='company_reserve'`).Scan(&a.GlobalCompanyReserve); err != nil {
 		return a, err
 	}
 	err = d.QueryRow(`SELECT COALESCE(SUM(amount_cents),0) FROM transaction_budget_allocations WHERE allocation_kind='company_shared_cost' AND milestone_id IS NULL`).Scan(&a.CompanySharedCost)

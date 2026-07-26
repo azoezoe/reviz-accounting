@@ -78,7 +78,7 @@ func (s *Server) projectBudgetPage(w http.ResponseWriter, r *http.Request) {
 		views = append(views, milestoneView{Milestone: m, Allocations: av, PlannedAllocated: total, ActualIncome: income, ActualReserve: reserve})
 	}
 	cps, _ := models.ListCounterparties(s.DB, "")
-	s.render(w, r, "project_budget.html", map[string]any{"Title": "專案預算", "Crumbs": []string{"專案", p.Name, "預算"}, "Project": p, "Budget": b, "Milestones": views, "Counterparties": cps, "ActualIncome": actualIncome, "ActualReserve": actualReserve, "PlannedCompany": plannedCompany, "CompanySharedCost": actuals.CompanySharedCost, "CompanyPoolBalance": actualReserve - actuals.CompanySharedCost, "Active": "projects"})
+	s.render(w, r, "project_budget.html", map[string]any{"Title": "專案預算", "Crumbs": []string{"專案", p.Name, "預算"}, "Project": p, "Budget": b, "Milestones": views, "Counterparties": cps, "ActualIncome": actualIncome, "ActualReserve": actualReserve, "PlannedCompany": plannedCompany, "CompanySharedCost": actuals.CompanySharedCost, "GlobalCompanyReserve": actuals.GlobalCompanyReserve, "CompanyPoolBalance": actuals.GlobalCompanyReserve - actuals.CompanySharedCost, "Active": "projects"})
 }
 
 func (s *Server) projectBudgetSave(w http.ResponseWriter, r *http.Request) {
