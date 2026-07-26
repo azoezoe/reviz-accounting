@@ -65,6 +65,12 @@ func CreateMilestone(d *sql.DB, m *Milestone) (int64, error) {
 	err := d.QueryRow(`INSERT INTO project_milestones(project_id,name,planned_income_cents,sort_order,note) VALUES(?,?,?,?,?) RETURNING id`, m.ProjectID, m.Name, m.PlannedIncomeCents, m.SortOrder, m.Note).Scan(&id)
 	return id, err
 }
+
+func MilestoneBelongsToProject(d *sql.DB, milestoneID, projectID int64) (bool, error) {
+	var found bool
+	err := d.QueryRow(`SELECT EXISTS(SELECT 1 FROM project_milestones WHERE id=? AND project_id=?)`, milestoneID, projectID).Scan(&found)
+	return found, err
+}
 func DeleteMilestone(d *sql.DB, id int64) error {
 	_, e := d.Exec(`DELETE FROM project_milestones WHERE id=?`, id)
 	return e
