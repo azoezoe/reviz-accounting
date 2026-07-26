@@ -176,14 +176,14 @@ func (s *Server) Token(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "random failure", 500)
 		return
 	}
-	exp := time.Now().Add(8 * time.Hour).UTC().Format(time.RFC3339)
+	exp := time.Now().Add(30 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	_, err = s.DB.Exec(`INSERT INTO mcp_access_tokens(token_hash,client_id,user_id,expires_at) VALUES(?,?,?,?)`, hash(token), clientID, userID, exp)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"access_token": token, "token_type": "Bearer", "expires_in": 28800})
+	_ = json.NewEncoder(w).Encode(map[string]any{"access_token": token, "token_type": "Bearer", "expires_in": int((30 * 24 * time.Hour).Seconds())})
 }
 func pkce(v string) string {
 	h := sha256.Sum256([]byte(v))
