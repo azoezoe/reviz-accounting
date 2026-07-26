@@ -90,12 +90,12 @@
           {{if eq .Type "transfer"}}
             <span style="display:inline-flex; align-items:center; gap:6px;">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--info-500)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 4l4 4-4 4M3 8h18M7 20l-4-4 4-4M21 16H3"/></svg>
-              <span class="lg-num lg-num--transfer">{{money .AmountCents}}</span>
+              <span class="lg-tx-direction lg-tx-direction--transfer">轉帳</span><span class="lg-num lg-num--transfer">↔ {{money .AmountCents}}</span>
             </span>
           {{else if eq .Type "income"}}
-            <span class="lg-num lg-num--income">{{money .AmountCents}}</span>
+            <span class="lg-tx-direction lg-tx-direction--income">收入</span><span class="lg-num lg-num--income">＋{{money .AmountCents}}</span>
           {{else}}
-            <span class="lg-num lg-num--expense">{{money .AmountCents}}</span>
+            <span class="lg-tx-direction lg-tx-direction--expense">支出</span><span class="lg-num lg-num--expense">−{{money .AmountCents}}</span>
           {{end}}
         </td>
         <td>{{if .FromAccountName}}<span style="font-family:var(--font-body-cn); font-size:13px;">{{.FromAccountName}}</span>{{if .HasFromBalance}}<span class="lg-tx-balance">餘額 {{money .FromBalanceAfter}}</span>{{end}}{{end}}</td>
