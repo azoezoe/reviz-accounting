@@ -102,20 +102,110 @@ func (s *Server) journalEdit(w http.ResponseWriter, r *http.Request) {
 	projs, _ := models.ListProjects(s.DB)
 	counterparties, _ := models.ListCounterparties(s.DB, "")
 	attachments, _ := models.ListAttachments(s.DB, id)
+	postings, _ := models.ListBudgetPostings(s.DB, id)
+	var milestones []models.Milestone
+	allocations := map[int64][]models.BudgetAllocation{}
+	if t.ProjectID.Valid {
+		milestones, _ = models.ListMilestones(s.DB, t.ProjectID.Int64)
+		for _, m := range milestones {
+			allocations[m.ID], _ = models.ListBudgetAllocations(s.DB, m.ID)
+		}
+	}
 
 	s.render(w, r, "journal_form.html", map[string]any{
-		"Title":          "編輯交易",
-		"Crumbs":         []string{"日記帳", "編輯", t.Code},
-		"Mode":           "edit",
-		"Tx":             t,
-		"AmountText":     money.FormatCents(t.AmountCents),
-		"Categories":     cats,
-		"Accounts":       accs,
-		"Projects":       projs,
-		"Counterparties": counterparties,
-		"Attachments":    attachments,
-		"Active":         "journal",
+		"Title":             "編輯交易",
+		"Crumbs":            []string{"日記帳", "編輯", t.Code},
+		"Mode":              "edit",
+		"Tx":                t,
+		"AmountText":        money.FormatCents(t.AmountCents),
+		"Categories":        cats,
+		"Accounts":          accs,
+		"Projects":          projs,
+		"Counterparties":    counterparties,
+		"Attachments":       attachments,
+		"BudgetPostings":    postings,
+		"BudgetMilestones":  milestones,
+		"BudgetAllocations": allocations,
+		"Active":            "journal",
 	})
+}
+
+func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Request) {
+	txID := parseInt64(r.PathValue("id"))
+	t, err := models.GetTransaction(s.DB, txID)
+	if err != nil {
+		http.Error(w, "找不到交易", 404)
+		return
+	}
+	amt, err := money.ParseCents(r.FormValue("amount"))
+	if err != nil || amt <= 0 {
+		http.Error(w, "分攤金額格式錯誤", 400)
+		return
+	}
+	kind := r.FormValue("allocation_kind")
+	if kind != "income" && kind != "partner_payout" && kind != "company_reserve" && kind != "company_shared_cost" {
+		http.Error(w, "分攤類型錯誤", 400)
+		return
+	}
+	p := &models.BudgetPosting{TransactionID: txID, Kind: kind, AmountCents: amt, Note: r.FormValue("note")}
+	if mid := parseInt64(r.FormValue("milestone_id")); mid > 0 {
+		p.MilestoneID = mid
+		p.MilestoneValid = true
+	}
+	if aid := parseInt64(r.FormValue("budget_allocation_id")); aid > 0 {
+		p.AllocationID = aid
+		p.AllocationValid = true
+	}
+	if kind != "company_shared_cost" && !p.MilestoneValid {
+		http.Error(w, "請選擇請款批次", 400)
+		return
+	}
+	if kind == "company_shared_cost" && p.MilestoneValid {
+		http.Error(w, "公司共用池支出不應歸屬請款批次", 400)
+		return
+	}
+	if p.AllocationValid {
+		if !p.MilestoneValid {
+			http.Error(w, "選擇分配時也必須選擇請款批次", 400)
+			return
+		}
+		ok, e := models.BudgetAllocationBelongsToMilestone(s.DB, p.AllocationID, p.MilestoneID)
+		if e != nil {
+			s.error500(w, e)
+			return
+		}
+		if !ok {
+			http.Error(w, "分配項目不屬於所選請款批次", 400)
+			return
+		}
+	}
+	if kind == "partner_payout" && !p.AllocationValid {
+		http.Error(w, "夥伴付款必須對應一個預算分配", 400)
+		return
+	}
+	// A company reserve is a reporting attribution of income, not a second
+	// cash movement. Other types can be split, but each cash-backed type must
+	// still fit within this journal transaction.
+	if kind != "company_reserve" {
+		used, err := models.SumBudgetPostingsByKind(s.DB, txID, kind)
+		if err != nil {
+			s.error500(w, err)
+			return
+		}
+		if used+amt > t.AmountCents {
+			http.Error(w, "此類型的分攤總額不能超過交易金額", 400)
+			return
+		}
+	}
+	if _, err = models.CreateBudgetPosting(s.DB, p); err != nil {
+		s.error500(w, err)
+		return
+	}
+	http.Redirect(w, r, "/journal/"+r.PathValue("id")+"/edit", 303)
+}
+func (s *Server) journalBudgetPostingDelete(w http.ResponseWriter, r *http.Request) {
+	_ = models.DeleteBudgetPosting(s.DB, parseInt64(r.PathValue("postingID")))
+	http.Redirect(w, r, "/journal/"+r.PathValue("id")+"/edit", 303)
 }
 
 func (s *Server) journalCreate(w http.ResponseWriter, r *http.Request) {

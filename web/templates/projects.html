@@ -43,7 +43,7 @@
   <div class="lg-proj-card">
     <div class="lg-proj-card__head">
       <div>
-        <h4 class="lg-proj-card__name">{{.Name}}</h4>
+        <h4 class="lg-proj-card__name"><a href="/projects/{{.ID}}/budget" style="color:inherit; text-decoration:none;">{{.Name}}</a></h4>
         <p class="lg-proj-card__code">{{printf "P-%04d" .ID}}</p>
       </div>
       <form method="post" action="/projects/{{.ID}}/delete" style="display:inline;" onsubmit="return confirm('刪除「{{.Name}}」？')">
@@ -60,6 +60,7 @@
     </div>
     {{end}}
     {{if .Note}}<p style="font-family:var(--font-body-cn); font-size:12.5px; color:var(--text-muted); margin:0; line-height:1.6;">{{.Note}}</p>{{end}}
+    <a href="/projects/{{.ID}}/budget" class="lg-btn-link" style="margin-top:12px; color:var(--text-brand);">管理預算 →</a>
   </div>
   {{else}}
   <div class="lg-empty" style="grid-column: 1 / -1;">

@@ -118,6 +118,18 @@
 
     {{if eq $mode "edit"}}
     <section class="lg-panel" style="padding:18px 20px;">
+      <div class="lg-panel__head"><div><h3 class="lg-panel__title" style="font-size:14px;">預算分攤</h3><p class="lg-panel__sub">可新增多列；實際金額會自動反映於專案預算。</p></div></div>
+      {{range .BudgetPostings}}<div style="display:flex;gap:6px;align-items:center;padding:7px 0;border-top:1px solid var(--border-subtle);font-size:12px;"><span style="flex:1">{{.Kind}} · {{money .AmountCents}}</span><form method="post" action="/journal/{{$tx.ID}}/budget-postings/{{.ID}}/delete"><button class="lg-btn-link" style="color:var(--danger-700)">×</button></form></div>{{end}}
+      <form method="post" action="/journal/{{$tx.ID}}/budget-postings" style="display:grid;gap:8px;margin-top:10px;">
+        <select class="lg-select" name="allocation_kind"><option value="income">請款收入</option><option value="partner_payout">夥伴付款</option><option value="company_reserve">公司保留</option><option value="company_shared_cost">公司共用池支出</option></select>
+        <select class="lg-select" name="milestone_id"><option value="">— 請款批次（共用池支出可不選）—</option>{{range .BudgetMilestones}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+        <select class="lg-select" name="budget_allocation_id"><option value="">— 對應分配（選填）—</option>{{range .BudgetMilestones}}{{range index $.BudgetAllocations .ID}}<option value="{{.ID}}">{{.RecipientName}} · {{money .PlannedAmountCents}}</option>{{end}}{{end}}</select>
+        <input class="lg-input" name="amount" inputmode="decimal" placeholder="分攤金額" required>
+        <input class="lg-input" name="note" placeholder="分攤備註（選填）">
+        <button class="lg-btn-primary" type="submit">加入分攤</button>
+      </form>
+    </section>
+    <section class="lg-panel" style="padding:18px 20px;">
       <div class="lg-panel__head"><div><h3 class="lg-panel__title" style="font-size:14px;">單據</h3><p class="lg-panel__sub">PDF、JPG、PNG 或 WebP；單檔最多 20 MB。</p></div></div>
       <form method="post" action="/journal/{{$tx.ID}}/attachments" enctype="multipart/form-data" style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
         <input class="lg-input" type="file" name="file" accept="application/pdf,image/jpeg,image/png,image/webp" required style="font-size:12px; padding:7px;">
