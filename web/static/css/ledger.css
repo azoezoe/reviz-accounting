@@ -511,6 +511,16 @@
 .lg-project-drawer-row span { color:var(--text-muted); }
 .lg-project-drawer-row strong { font-family:var(--font-mono); font-size:11px; color:var(--text-strong); text-align:right; }
 .lg-project-drawer-note { margin:0; padding:10px 12px; color:var(--text-muted); background:var(--surface-tint); border-radius:var(--r-sm); font-size:13px; line-height:1.6; }
+
+/* This drawer is launched from a long, document-scrolling journal. It must
+   therefore be viewport-fixed rather than inheriting the page's height. */
+.lg-overlay.lg-project-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  height: 100dvh;
+  z-index: 200;
+}
+.lg-overlay.lg-project-drawer-overlay .lg-drawer { height: 100dvh; }
 .lg-table thead th {
   font-family: var(--font-sans);
   font-size: 10.5px;
