@@ -49,6 +49,13 @@
   </div>
 </form>
 
+<section class="lg-panel" style="padding:16px 20px;">
+  <div class="lg-panel__head" style="margin-bottom:12px;"><div><h3 class="lg-panel__title" style="font-size:14px;">帳戶餘額</h3><p class="lg-panel__sub">截至目前所有已入帳交易</p></div></div>
+  <div class="lg-account-balances">
+    {{range .AccountBalances}}<div class="lg-account-balance"><span class="lg-account-balance__name">{{.Name}}{{if not .Active}} <small>已停用</small>{{end}}</span><span class="lg-num {{if lt .Balance 0}}lg-num--expense{{else if eq .Balance 0}}lg-num--zero{{else}}lg-num--income{{end}}">{{money .Balance}}</span></div>{{else}}<span style="color:var(--text-faint);font-size:13px;">尚無帳戶</span>{{end}}
+  </div>
+</section>
+
 <section class="lg-panel lg-panel--flush lg-table-scroll">
   <table class="lg-table lg-table--journal">
     <thead>
@@ -91,8 +98,8 @@
             <span class="lg-num lg-num--expense">{{money .AmountCents}}</span>
           {{end}}
         </td>
-        <td>{{if .FromAccountName}}<span style="font-family:var(--font-body-cn); font-size:13px;">{{.FromAccountName}}</span>{{end}}</td>
-        <td>{{if .ToAccountName}}<span style="font-family:var(--font-body-cn); font-size:13px;">{{.ToAccountName}}</span>{{end}}</td>
+        <td>{{if .FromAccountName}}<span style="font-family:var(--font-body-cn); font-size:13px;">{{.FromAccountName}}</span>{{if .HasFromBalance}}<span class="lg-tx-balance">餘額 {{money .FromBalanceAfter}}</span>{{end}}{{end}}</td>
+        <td>{{if .ToAccountName}}<span style="font-family:var(--font-body-cn); font-size:13px;">{{.ToAccountName}}</span>{{if .HasToBalance}}<span class="lg-tx-balance">餘額 {{money .ToBalanceAfter}}</span>{{end}}{{end}}</td>
         <td>
           {{if .ProjectName}}
             <span class="lg-cat" style="background:var(--accent-soft); color:var(--text-brand);">{{.ProjectName}}</span>

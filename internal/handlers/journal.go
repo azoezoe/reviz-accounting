@@ -28,6 +28,41 @@ func (s *Server) journalList(w http.ResponseWriter, r *http.Request) {
 		s.error500(w, err)
 		return
 	}
+	balances, err := models.AccountBalances(s.DB)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	allAccounts, err := models.ListAccounts(s.DB, false)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	// Running balances must be derived from the complete ledger, not just the
+	// current filter/page; otherwise a project filter or page two would show a
+	// misleading historical balance.
+	allTxs, _, err := models.ListTransactions(s.DB, models.TxFilter{})
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	allViews := journalTransactionViews(allTxs, balances)
+	byID := make(map[int64]journalTransactionView, len(allViews))
+	for _, view := range allViews {
+		byID[view.ID] = view
+	}
+	txViews := make([]journalTransactionView, 0, len(txs))
+	for _, tx := range txs {
+		txViews = append(txViews, byID[tx.ID])
+	}
+	type accountBalanceView struct {
+		models.Account
+		Balance int64
+	}
+	accountViews := make([]accountBalanceView, 0, len(allAccounts))
+	for _, account := range allAccounts {
+		accountViews = append(accountViews, accountBalanceView{Account: account, Balance: balances[account.ID]})
+	}
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
@@ -37,20 +72,55 @@ func (s *Server) journalList(w http.ResponseWriter, r *http.Request) {
 	monthOpts := s.distinctMonths()
 
 	s.render(w, r, "journal_list.html", map[string]any{
-		"Title":          "日記帳",
-		"Crumbs":         []string{"日記帳"},
-		"Transactions":   txs,
-		"Total":          total,
-		"Filter":         f,
-		"Categories":     cats,
-		"Accounts":       accs,
-		"Projects":       projs,
-		"Counterparties": counterparties,
-		"MonthOptions":   monthOpts,
-		"NextOffset":     f.Offset + pageSize,
-		"PrevOffset":     max(0, f.Offset-pageSize),
-		"Active":         "journal",
+		"Title":           "日記帳",
+		"Crumbs":          []string{"日記帳"},
+		"Transactions":    txViews,
+		"Total":           total,
+		"Filter":          f,
+		"Categories":      cats,
+		"Accounts":        accs,
+		"AccountBalances": accountViews,
+		"Projects":        projs,
+		"Counterparties":  counterparties,
+		"MonthOptions":    monthOpts,
+		"NextOffset":      f.Offset + pageSize,
+		"PrevOffset":      max(0, f.Offset-pageSize),
+		"Active":          "journal",
 	})
+}
+
+// journalTransactionView carries the balance immediately after each listed
+// transaction. The list is newest-first, so we start from today's balances and
+// reverse each row as we move backward through time.
+type journalTransactionView struct {
+	models.Transaction
+	FromBalanceAfter int64
+	ToBalanceAfter   int64
+	HasFromBalance   bool
+	HasToBalance     bool
+}
+
+func journalTransactionViews(txs []models.Transaction, current map[int64]int64) []journalTransactionView {
+	balance := make(map[int64]int64, len(current))
+	for id, amount := range current {
+		balance[id] = amount
+	}
+	views := make([]journalTransactionView, 0, len(txs))
+	for _, tx := range txs {
+		v := journalTransactionView{Transaction: tx}
+		if tx.FromAccountID.Valid {
+			v.HasFromBalance = true
+			v.FromBalanceAfter = balance[tx.FromAccountID.Int64]
+			balance[tx.FromAccountID.Int64] += tx.AmountCents
+		}
+		if tx.ToAccountID.Valid {
+			v.HasToBalance = true
+			v.ToBalanceAfter = balance[tx.ToAccountID.Int64]
+			balance[tx.ToAccountID.Int64] -= tx.AmountCents
+		}
+		views = append(views, v)
+	}
+	return views
 }
 
 func (s *Server) distinctMonths() []string {
