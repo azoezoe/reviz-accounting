@@ -47,6 +47,24 @@ func (s *Server) projectSummary(w http.ResponseWriter, r *http.Request) {
 		s.error500(w, err)
 		return
 	}
+	transactions, _, err := models.ListTransactions(s.DB, models.TxFilter{ProjectID: id})
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	postingCounts, err := models.BudgetPostingCountsForProject(s.DB, id)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	type transactionView struct {
+		models.Transaction
+		PostingCount int
+	}
+	txViews := make([]transactionView, 0, len(transactions))
+	for _, tx := range transactions {
+		txViews = append(txViews, transactionView{Transaction: tx, PostingCount: postingCounts[tx.ID]})
+	}
 	type allocation struct {
 		Name    string `json:"name"`
 		Kind    string `json:"kind"`
@@ -78,9 +96,10 @@ func (s *Server) projectSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"project":    map[string]any{"id": p.ID, "name": p.Name, "start_date": p.StartDate.String, "end_date": p.EndDate.String, "note": p.Note},
-		"budget":     map[string]any{"total_cents": b.TotalAmountCents, "actual_income_cents": actualIncome, "actual_reserve_cents": actualReserve},
-		"milestones": out,
+		"project":      map[string]any{"id": p.ID, "name": p.Name, "start_date": p.StartDate.String, "end_date": p.EndDate.String, "note": p.Note},
+		"budget":       map[string]any{"total_cents": b.TotalAmountCents, "actual_income_cents": actualIncome, "actual_reserve_cents": actualReserve},
+		"milestones":   out,
+		"transactions": txViews,
 	})
 }
 
@@ -105,6 +124,24 @@ func (s *Server) projectBudgetPage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.error500(w, err)
 		return
+	}
+	transactions, _, err := models.ListTransactions(s.DB, models.TxFilter{ProjectID: id})
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	postingCounts, err := models.BudgetPostingCountsForProject(s.DB, id)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	type transactionView struct {
+		models.Transaction
+		PostingCount int
+	}
+	txViews := make([]transactionView, 0, len(transactions))
+	for _, tx := range transactions {
+		txViews = append(txViews, transactionView{Transaction: tx, PostingCount: postingCounts[tx.ID]})
 	}
 	type allocationView struct {
 		models.BudgetAllocation
@@ -141,7 +178,7 @@ func (s *Server) projectBudgetPage(w http.ResponseWriter, r *http.Request) {
 		views = append(views, milestoneView{Milestone: m, Allocations: av, PlannedAllocated: total, ActualIncome: income, ActualReserve: reserve})
 	}
 	cps, _ := models.ListCounterparties(s.DB, "")
-	s.render(w, r, "project_budget.html", map[string]any{"Title": "專案預算", "Crumbs": []string{"專案", p.Name, "預算"}, "Project": p, "Budget": b, "Milestones": views, "Counterparties": cps, "ActualIncome": actualIncome, "ActualReserve": actualReserve, "PlannedCompany": plannedCompany, "Active": "projects"})
+	s.render(w, r, "project_budget.html", map[string]any{"Title": "專案預算", "Crumbs": []string{"專案", p.Name, "預算"}, "Project": p, "Budget": b, "Milestones": views, "ProjectTransactions": txViews, "Counterparties": cps, "ActualIncome": actualIncome, "ActualReserve": actualReserve, "PlannedCompany": plannedCompany, "Active": "projects"})
 }
 
 func (s *Server) projectBudgetSave(w http.ResponseWriter, r *http.Request) {

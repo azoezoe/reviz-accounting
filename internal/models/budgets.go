@@ -215,3 +215,27 @@ func BudgetAllocationBelongsToMilestone(d *sql.DB, allocationID, milestoneID int
 	err := d.QueryRow(`SELECT EXISTS(SELECT 1 FROM project_budget_allocations WHERE id=? AND milestone_id=?)`, allocationID, milestoneID).Scan(&found)
 	return found, err
 }
+
+// BudgetPostingCountsForProject identifies journal entries linked to a project
+// that still need a budget/milestone allocation.
+func BudgetPostingCountsForProject(d *sql.DB, projectID int64) (map[int64]int, error) {
+	rows, err := d.Query(`SELECT t.id,COUNT(p.id)
+		FROM transactions t
+		LEFT JOIN transaction_budget_allocations p ON p.transaction_id=t.id
+		WHERE t.project_id=?
+		GROUP BY t.id`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]int{}
+	for rows.Next() {
+		var id int64
+		var count int
+		if err := rows.Scan(&id, &count); err != nil {
+			return nil, err
+		}
+		out[id] = count
+	}
+	return out, rows.Err()
+}

@@ -49,5 +49,12 @@
   </form>
 </section>
 {{else}}<div class="lg-empty"><p class="lg-empty__sub">先建立請款批次，再配置公司與夥伴的預算。</p></div>{{end}}
+
+<section class="lg-panel">
+  <div class="lg-panel__head"><div><h3 class="lg-panel__title">專案日記帳</h3><p class="lg-panel__sub">此處列出所有已連結本專案的交易；尚未分攤者不會計入請款與預算實際值。</p></div></div>
+  <table class="lg-table"><thead><tr><th>日期</th><th>交易對象／敘述</th><th>方向</th><th class="right">金額</th><th>預算狀態</th><th></th></tr></thead><tbody>
+  {{range .ProjectTransactions}}<tr><td class="lg-tx-date">{{.Date}}</td><td>{{if .CounterpartyName}}<strong>{{.CounterpartyName}}</strong> · {{end}}{{.Description}}</td><td>{{if eq .Type "income"}}收入{{else if eq .Type "expense"}}支出{{else}}轉帳{{end}}</td><td class="right {{if eq .Type "income"}}lg-num--income{{else if eq .Type "expense"}}lg-num--expense{{else}}lg-num--transfer{{end}}">{{if eq .Type "income"}}＋{{else if eq .Type "expense"}}−{{else}}↔ {{end}}{{money .AmountCents}}</td><td>{{if eq .PostingCount 0}}<span class="lg-cat" style="background:var(--warning-100);color:var(--warning-700);">尚未分攤</span>{{else}}<span class="lg-cat" style="background:var(--success-100);color:var(--success-700);">已分攤 {{.PostingCount}} 筆</span>{{end}}</td><td class="right"><a class="lg-btn-link" href="/journal/{{.ID}}/edit">{{if eq .PostingCount 0}}前往分攤{{else}}查看／調整{{end}} →</a></td></tr>{{else}}<tr><td colspan="6" style="color:var(--text-faint);">尚無連結到此專案的日記帳交易</td></tr>{{end}}
+  </tbody></table>
+</section>
 {{end}}
 {{template "base" .}}

@@ -104,6 +104,8 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 		return s.createProject(a)
 	case "get_project_budget":
 		return s.projectBudget(numID(a, "project_id"))
+	case "list_project_transactions":
+		return s.projectTransactions(numID(a, "project_id"))
 	case "list_transactions":
 		f := models.TxFilter{YearMonth: str(a, "year_month"), SearchText: str(a, "search"), Limit: asInt(num(a, "limit"))}
 		if f.Limit == 0 {
@@ -166,7 +168,8 @@ func tools() []map[string]any {
 		{"name": "list_categories", "description": "列出收入、成本與費用分類", "inputSchema": obj},
 		{"name": "list_projects", "description": "列出專案", "inputSchema": obj},
 		{"name": "create_project", "description": "建立專案。傳 name；可選 start_date、end_date（YYYY-MM-DD）與 note。", "inputSchema": req("name")},
-		{"name": "get_project_budget", "description": "取得專案的總預算、請款批次、各對象預計/實際及公司共用池。傳 project_id。", "inputSchema": req("project_id")},
+		{"name": "get_project_budget", "description": "取得專案的總預算、請款批次、各對象預計/實際，以及已連結專案的日記帳交易與分攤狀態。傳 project_id。", "inputSchema": req("project_id")},
+		{"name": "list_project_transactions", "description": "列出已連結到專案的日記帳交易，並標示每筆是否已有預算分攤。傳 project_id。", "inputSchema": req("project_id")},
 		{"name": "list_transactions", "description": "查詢交易，可帶 year_month、search、limit", "inputSchema": obj},
 		{"name": "create_transaction", "description": "新增交易；amount 是分，傳 date、description、amount、from_account_id/to_account_id、category_id、counterparty、note。", "inputSchema": req("date", "description", "amount")},
 		{"name": "update_transaction", "description": "更新既有交易；傳 id 及 create_transaction 欄位。", "inputSchema": req("id", "date", "description", "amount")},
@@ -273,11 +276,43 @@ func (s *Server) projectBudget(projectID int64) (any, error) {
 		}
 		report = append(report, milestoneReport{Milestone: m, Allocations: allocations, ActualIncome: actual.IncomeByMilestone[m.ID], ActualReserve: actual.ReserveByMilestone[m.ID], ActualPaid: paid})
 	}
+	transactions, err := s.projectTransactionsData(projectID)
+	if err != nil {
+		return nil, err
+	}
 	return content(map[string]any{
-		"project":    p,
-		"budget":     b,
-		"milestones": report,
+		"project":      p,
+		"budget":       b,
+		"milestones":   report,
+		"transactions": transactions,
 	}, nil)
+}
+
+func (s *Server) projectTransactions(projectID int64) (any, error) {
+	transactions, err := s.projectTransactionsData(projectID)
+	return content(transactions, err)
+}
+
+func (s *Server) projectTransactionsData(projectID int64) ([]map[string]any, error) {
+	if projectID <= 0 {
+		return nil, fmtErr("project_id 必填")
+	}
+	if _, err := models.GetProject(s.DB, projectID); err != nil {
+		return nil, fmtErr("找不到專案")
+	}
+	txs, _, err := models.ListTransactions(s.DB, models.TxFilter{ProjectID: projectID})
+	if err != nil {
+		return nil, err
+	}
+	counts, err := models.BudgetPostingCountsForProject(s.DB, projectID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]map[string]any, 0, len(txs))
+	for _, tx := range txs {
+		out = append(out, map[string]any{"id": tx.ID, "code": tx.Code, "date": tx.Date, "description": tx.Description, "counterparty": tx.CounterpartyName, "amount_cents": tx.AmountCents, "type": tx.Type(), "budget_posting_count": counts[tx.ID], "is_unallocated": counts[tx.ID] == 0})
+	}
+	return out, nil
 }
 
 func (s *Server) saveProjectBudget(a map[string]any) (any, error) {
