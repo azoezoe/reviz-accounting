@@ -946,6 +946,13 @@
   font-size: 11px;
   color: var(--text-faint);
 }
+.lg-field-error {
+  margin: -2px 0 0;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--danger-600);
+}
 .lg-input, .lg-select, .lg-textarea {
   font-family: var(--font-body-cn);
   font-size: 14px;
@@ -961,6 +968,8 @@
 }
 .lg-textarea { padding: 10px 12px; height: auto; min-height: 64px; line-height: 1.5; }
 .lg-input:focus, .lg-select:focus, .lg-textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+.lg-input--error { border-color: var(--danger-500); }
+.lg-input--error:focus { border-color: var(--danger-500); box-shadow: 0 0 0 3px oklch(0.640 0.180 22 / 0.25); }
 .lg-input--money {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;

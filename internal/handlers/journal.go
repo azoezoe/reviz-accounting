@@ -11,6 +11,15 @@ import (
 
 const pageSize = 50
 
+type budgetPostingForm struct {
+	Kind         string
+	AllocationID string
+	Amount       string
+	Note         string
+	Error        string
+	ErrorField   string
+}
+
 func (s *Server) journalList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	f := models.TxFilter{
@@ -167,12 +176,16 @@ func (s *Server) journalEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
+	s.renderJournalEdit(w, r, t, &budgetPostingForm{Kind: "partner_payout"})
+}
+
+func (s *Server) renderJournalEdit(w http.ResponseWriter, r *http.Request, t *models.Transaction, postingForm *budgetPostingForm) {
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
 	counterparties, _ := models.ListCounterparties(s.DB, "")
-	attachments, _ := models.ListAttachments(s.DB, id)
-	postings, _ := models.ListBudgetPostings(s.DB, id)
+	attachments, _ := models.ListAttachments(s.DB, t.ID)
+	postings, _ := models.ListBudgetPostings(s.DB, t.ID)
 	var allocations []models.BudgetAllocation
 	if t.ProjectID.Valid {
 		allocations, _ = models.ListProjectBudgetAllocations(s.DB, t.ProjectID.Int64)
@@ -191,8 +204,16 @@ func (s *Server) journalEdit(w http.ResponseWriter, r *http.Request) {
 		"Attachments":       attachments,
 		"BudgetPostings":    postings,
 		"BudgetAllocations": allocations,
+		"BudgetPostingForm": postingForm,
 		"Active":            "journal",
 	})
+}
+
+func (s *Server) journalBudgetPostingError(w http.ResponseWriter, r *http.Request, t *models.Transaction, form *budgetPostingForm, field, message string) {
+	form.Error = message
+	form.ErrorField = field
+	w.WriteHeader(http.StatusUnprocessableEntity)
+	s.renderJournalEdit(w, r, t, form)
 }
 
 func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Request) {
@@ -202,14 +223,15 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "找不到交易", 404)
 		return
 	}
+	form := &budgetPostingForm{Kind: r.FormValue("allocation_kind"), AllocationID: r.FormValue("budget_allocation_id"), Amount: r.FormValue("amount"), Note: r.FormValue("note")}
 	amt, err := money.ParseCents(r.FormValue("amount"))
 	if err != nil || amt <= 0 {
-		http.Error(w, "分攤金額格式錯誤", 400)
+		s.journalBudgetPostingError(w, r, t, form, "amount", "請輸入大於 0 的有效分攤金額")
 		return
 	}
 	kind := r.FormValue("allocation_kind")
 	if kind != "income" && kind != "partner_payout" && kind != "cost_expense" && kind != "company_reserve" && kind != "company_shared_cost" {
-		http.Error(w, "分攤類型錯誤", 400)
+		s.journalBudgetPostingError(w, r, t, form, "kind", "請選擇有效的分攤類型")
 		return
 	}
 	p := &models.BudgetPosting{TransactionID: txID, Kind: kind, AmountCents: amt, Note: r.FormValue("note")}
@@ -219,7 +241,7 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 	}
 	if p.AllocationValid {
 		if !t.ProjectID.Valid {
-			http.Error(w, "此交易未指定專案", 400)
+			s.journalBudgetPostingError(w, r, t, form, "allocation", "此交易尚未指定專案，無法對應專案預算項目")
 			return
 		}
 		ok, e := models.BudgetAllocationBelongsToProject(s.DB, p.AllocationID, t.ProjectID.Int64)
@@ -228,12 +250,12 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if !ok {
-			http.Error(w, "分配項目不屬於交易專案", 400)
+			s.journalBudgetPostingError(w, r, t, form, "allocation", "選擇的預算項目不屬於此交易的專案")
 			return
 		}
 	}
 	if (kind == "partner_payout" || kind == "cost_expense") && !p.AllocationValid {
-		http.Error(w, "勞務報酬或成本支出必須對應一個預算分配", 400)
+		s.journalBudgetPostingError(w, r, t, form, "allocation", "勞務報酬或成本支出必須對應一個專案預算項目")
 		return
 	}
 	if p.AllocationValid {
@@ -243,7 +265,7 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if (kind == "partner_payout" && allocationKind != "labor_compensation") || (kind == "cost_expense" && allocationKind != "cost_expense") || (kind == "company_reserve" && allocationKind != "company_reserve") {
-			http.Error(w, "分攤類型必須對應相同用途類別的預算項目", 400)
+			s.journalBudgetPostingError(w, r, t, form, "allocation", "分攤類型必須對應相同用途類別的專案預算項目")
 			return
 		}
 	}
@@ -257,7 +279,7 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if used+amt > t.AmountCents {
-			http.Error(w, "此類型的分攤總額不能超過交易金額", 400)
+			s.journalBudgetPostingError(w, r, t, form, "amount", "此類型的分攤總額不能超過交易金額")
 			return
 		}
 	}
