@@ -12,9 +12,14 @@ type Milestone struct {
 	SortOrder                         int
 }
 type BudgetAllocation struct {
-	ID, MilestoneID, CounterpartyID, PlannedAmountCents int64
-	RecipientKind, RecipientName                        string
-	CounterpartyValid                                   bool
+	ID, ProjectID, MilestoneID, CounterpartyID, PlannedAmountCents int64
+	RecipientKind, RecipientName                                   string
+	CounterpartyValid                                              bool
+}
+
+type ProjectBudgetReport struct {
+	IncomeCents      int64
+	PaidByAllocation map[int64]int64
 }
 type BudgetPosting struct {
 	ID, TransactionID, MilestoneID, AllocationID, AmountCents int64
@@ -97,8 +102,55 @@ func CreateBudgetAllocation(d *sql.DB, a *BudgetAllocation) (int64, error) {
 		cp = a.CounterpartyID
 	}
 	var id int64
+	if a.ProjectID > 0 {
+		e := d.QueryRow(`INSERT INTO project_budget_allocations(project_id,recipient_kind,counterparty_id,recipient_name,planned_amount_cents) VALUES(?,?,?,?,?) RETURNING id`, a.ProjectID, a.RecipientKind, cp, a.RecipientName, a.PlannedAmountCents).Scan(&id)
+		return id, e
+	}
 	e := d.QueryRow(`INSERT INTO project_budget_allocations(milestone_id,recipient_kind,counterparty_id,recipient_name,planned_amount_cents) VALUES(?,?,?,?,?) RETURNING id`, a.MilestoneID, a.RecipientKind, cp, a.RecipientName, a.PlannedAmountCents).Scan(&id)
 	return id, e
+}
+
+func ListProjectBudgetAllocations(d *sql.DB, projectID int64) ([]BudgetAllocation, error) {
+	rows, err := d.Query(`SELECT id,project_id,recipient_kind,COALESCE(counterparty_id,0),counterparty_id IS NOT NULL,recipient_name,planned_amount_cents FROM project_budget_allocations WHERE project_id=? ORDER BY id`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BudgetAllocation
+	for rows.Next() {
+		var a BudgetAllocation
+		if err := rows.Scan(&a.ID, &a.ProjectID, &a.RecipientKind, &a.CounterpartyID, &a.CounterpartyValid, &a.RecipientName, &a.PlannedAmountCents); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func BudgetAllocationBelongsToProject(d *sql.DB, allocationID, projectID int64) (bool, error) {
+	var ok bool
+	err := d.QueryRow(`SELECT EXISTS(SELECT 1 FROM project_budget_allocations WHERE id=? AND project_id=?)`, allocationID, projectID).Scan(&ok)
+	return ok, err
+}
+
+func GetProjectBudgetReport(d *sql.DB, projectID int64) (ProjectBudgetReport, error) {
+	r := ProjectBudgetReport{PaidByAllocation: map[int64]int64{}}
+	if err := d.QueryRow(`SELECT COALESCE(SUM(amount_cents),0) FROM transactions WHERE project_id=? AND to_account_id IS NOT NULL AND from_account_id IS NULL`, projectID).Scan(&r.IncomeCents); err != nil {
+		return r, err
+	}
+	rows, err := d.Query(`SELECT p.budget_allocation_id,SUM(p.amount_cents) FROM transaction_budget_allocations p JOIN project_budget_allocations a ON a.id=p.budget_allocation_id WHERE a.project_id=? AND p.allocation_kind IN ('partner_payout','cost_expense') GROUP BY p.budget_allocation_id`, projectID)
+	if err != nil {
+		return r, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, amount int64
+		if err := rows.Scan(&id, &amount); err != nil {
+			return r, err
+		}
+		r.PaidByAllocation[id] = amount
+	}
+	return r, rows.Err()
 }
 func DeleteBudgetAllocation(d *sql.DB, id int64) error {
 	_, e := d.Exec(`DELETE FROM project_budget_allocations WHERE id=?`, id)

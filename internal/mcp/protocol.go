@@ -142,15 +142,13 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 			return nil, fmtErr("權限不足")
 		}
 		return s.uploadReceipt(u, a)
-	case "save_project_budget", "create_project_milestone", "create_budget_allocation", "create_budget_posting":
+	case "save_project_budget", "create_budget_allocation", "create_budget_posting":
 		if !u.AtLeast(auth.RoleAccountant) {
 			return nil, fmtErr("權限不足")
 		}
 		switch name {
 		case "save_project_budget":
 			return s.saveProjectBudget(a)
-		case "create_project_milestone":
-			return s.createProjectMilestone(a)
 		case "create_budget_allocation":
 			return s.createBudgetAllocation(a)
 		default:
@@ -175,9 +173,8 @@ func tools() []map[string]any {
 		{"name": "update_transaction", "description": "更新既有交易；傳 id 及 create_transaction 欄位。", "inputSchema": req("id", "date", "description", "amount")},
 		{"name": "upload_receipt", "description": "上傳並附加單據到既有交易。傳 transaction_id、filename、mime_type 與 content_base64；只接受 PDF、JPG、PNG、WebP，最大 20 MB。", "inputSchema": req("transaction_id", "filename", "mime_type", "content_base64")},
 		{"name": "save_project_budget", "description": "新增或更新專案總預算；amount 為分。傳 project_id、total_amount，可選 note。", "inputSchema": req("project_id", "total_amount")},
-		{"name": "create_project_milestone", "description": "建立專案請款批次；金額為分。傳 project_id、name、planned_income，可選 note、sort_order。", "inputSchema": req("project_id", "name", "planned_income")},
-		{"name": "create_budget_allocation", "description": "建立批次預定分配；金額為分。recipient_kind 必須是 labor_compensation（勞務報酬）、company_reserve（公司保留）或 cost_expense（成本支出）。傳 milestone_id、recipient_kind、recipient_name、planned_amount，可選 counterparty_id。", "inputSchema": req("milestone_id", "recipient_kind", "recipient_name", "planned_amount")},
-		{"name": "create_budget_posting", "description": "把既有日記帳交易分攤至預算。傳 transaction_id、allocation_kind(income|partner_payout|cost_expense|company_reserve|company_shared_cost)、amount(分)。income/company_reserve/partner_payout/cost_expense 要有 milestone_id；partner_payout/cost_expense 還要 budget_allocation_id。company_shared_cost 不帶 milestone_id。", "inputSchema": req("transaction_id", "allocation_kind", "amount")},
+		{"name": "create_budget_allocation", "description": "建立專案預定分配；金額為分。傳 project_id、recipient_kind(labor_compensation|company_reserve|cost_expense)、recipient_name、planned_amount。", "inputSchema": req("project_id", "recipient_kind", "recipient_name", "planned_amount")},
+		{"name": "create_budget_posting", "description": "把既有專案支出交易對應到預算項目。傳 transaction_id、allocation_kind(partner_payout|cost_expense)、budget_allocation_id、amount(分)。", "inputSchema": req("transaction_id", "allocation_kind", "budget_allocation_id", "amount")},
 	}
 }
 
@@ -249,32 +246,13 @@ func (s *Server) projectBudget(projectID int64) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ms, err := models.ListMilestones(s.DB, projectID)
+	allocations, err := models.ListProjectBudgetAllocations(s.DB, projectID)
 	if err != nil {
 		return nil, err
 	}
-	actual, err := models.GetProjectBudgetActuals(s.DB, projectID)
+	report, err := models.GetProjectBudgetReport(s.DB, projectID)
 	if err != nil {
 		return nil, err
-	}
-	type milestoneReport struct {
-		models.Milestone
-		Allocations   []models.BudgetAllocation `json:"allocations"`
-		ActualIncome  int64                     `json:"actual_income_cents"`
-		ActualReserve int64                     `json:"actual_reserve_cents"`
-		ActualPaid    map[int64]int64           `json:"actual_paid_by_allocation_cents"`
-	}
-	report := make([]milestoneReport, 0, len(ms))
-	for _, m := range ms {
-		allocations, e := models.ListBudgetAllocations(s.DB, m.ID)
-		if e != nil {
-			return nil, e
-		}
-		paid := map[int64]int64{}
-		for _, allocation := range allocations {
-			paid[allocation.ID] = actual.PaidByAllocation[allocation.ID]
-		}
-		report = append(report, milestoneReport{Milestone: m, Allocations: allocations, ActualIncome: actual.IncomeByMilestone[m.ID], ActualReserve: actual.ReserveByMilestone[m.ID], ActualPaid: paid})
 	}
 	transactions, err := s.projectTransactionsData(projectID)
 	if err != nil {
@@ -283,7 +261,8 @@ func (s *Server) projectBudget(projectID int64) (any, error) {
 	return content(map[string]any{
 		"project":      p,
 		"budget":       b,
-		"milestones":   report,
+		"income_cents": report.IncomeCents,
+		"allocations":  allocations,
 		"transactions": transactions,
 	}, nil)
 }
@@ -349,26 +328,26 @@ func (s *Server) createProjectMilestone(a map[string]any) (any, error) {
 }
 
 func (s *Server) createBudgetAllocation(a map[string]any) (any, error) {
-	milestoneID, amount := numID(a, "milestone_id"), numID(a, "planned_amount")
+	projectID, amount := numID(a, "project_id"), numID(a, "planned_amount")
 	kind, name := str(a, "recipient_kind"), strings.TrimSpace(str(a, "recipient_name"))
-	if milestoneID <= 0 || amount < 0 || name == "" || (kind != "company_reserve" && kind != "labor_compensation" && kind != "cost_expense") {
-		return nil, fmtErr("milestone_id、recipient_kind、recipient_name 與非負的 planned_amount（分）必填")
+	if projectID <= 0 || amount < 0 || name == "" || (kind != "company_reserve" && kind != "labor_compensation" && kind != "cost_expense") {
+		return nil, fmtErr("project_id、recipient_kind、recipient_name 與非負的 planned_amount（分）必填")
 	}
-	if _, err := models.ListBudgetAllocations(s.DB, milestoneID); err != nil {
-		return nil, fmtErr("找不到請款批次")
+	if _, err := models.GetProject(s.DB, projectID); err != nil {
+		return nil, fmtErr("找不到專案")
 	}
-	x := &models.BudgetAllocation{MilestoneID: milestoneID, RecipientKind: kind, RecipientName: name, PlannedAmountCents: amount}
+	x := &models.BudgetAllocation{ProjectID: projectID, RecipientKind: kind, RecipientName: name, PlannedAmountCents: amount}
 	if cp := numID(a, "counterparty_id"); cp > 0 {
 		x.CounterpartyID, x.CounterpartyValid = cp, true
 	}
 	id, err := models.CreateBudgetAllocation(s.DB, x)
-	return content(map[string]any{"id": id, "milestone_id": milestoneID}, err)
+	return content(map[string]any{"id": id, "project_id": projectID}, err)
 }
 
 func (s *Server) createBudgetPosting(a map[string]any) (any, error) {
 	txID, amount := numID(a, "transaction_id"), numID(a, "amount")
 	kind := str(a, "allocation_kind")
-	if txID <= 0 || amount <= 0 || (kind != "income" && kind != "partner_payout" && kind != "cost_expense" && kind != "company_reserve" && kind != "company_shared_cost") {
+	if txID <= 0 || amount <= 0 || (kind != "partner_payout" && kind != "cost_expense") {
 		return nil, fmtErr("transaction_id、正數 amount（分）及有效 allocation_kind 必填")
 	}
 	t, err := models.GetTransaction(s.DB, txID)
@@ -376,34 +355,16 @@ func (s *Server) createBudgetPosting(a map[string]any) (any, error) {
 		return nil, fmtErr("找不到交易")
 	}
 	p := &models.BudgetPosting{TransactionID: txID, Kind: kind, AmountCents: amount, Note: str(a, "note")}
-	if milestoneID := numID(a, "milestone_id"); milestoneID > 0 {
-		p.MilestoneID, p.MilestoneValid = milestoneID, true
-	}
 	if allocationID := numID(a, "budget_allocation_id"); allocationID > 0 {
 		p.AllocationID, p.AllocationValid = allocationID, true
 	}
-	if kind == "company_shared_cost" && p.MilestoneValid {
-		return nil, fmtErr("company_shared_cost 不可歸屬請款批次")
-	}
-	if kind != "company_shared_cost" && !p.MilestoneValid {
-		return nil, fmtErr("此分攤類型必須提供 milestone_id")
-	}
-	if p.MilestoneValid {
-		if !t.ProjectID.Valid {
-			return nil, fmtErr("此交易未指定專案，不能歸屬請款批次")
-		}
-		ok, e := models.MilestoneBelongsToProject(s.DB, p.MilestoneID, t.ProjectID.Int64)
-		if e != nil || !ok {
-			return nil, fmtErr("請款批次不屬於交易專案")
-		}
-	}
-	if (kind == "partner_payout" || kind == "cost_expense") && !p.AllocationValid {
-		return nil, fmtErr("partner_payout 或 cost_expense 必須提供 budget_allocation_id")
+	if !t.ProjectID.Valid || !p.AllocationValid {
+		return nil, fmtErr("交易必須指定專案並提供 budget_allocation_id")
 	}
 	if p.AllocationValid {
-		ok, e := models.BudgetAllocationBelongsToMilestone(s.DB, p.AllocationID, p.MilestoneID)
+		ok, e := models.BudgetAllocationBelongsToProject(s.DB, p.AllocationID, t.ProjectID.Int64)
 		if e != nil || !ok {
-			return nil, fmtErr("預算分配不屬於所選請款批次")
+			return nil, fmtErr("預算分配不屬於交易專案")
 		}
 		allocationKind, e := models.BudgetAllocationKind(s.DB, p.AllocationID)
 		if e != nil {

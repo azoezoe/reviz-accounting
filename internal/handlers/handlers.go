@@ -147,7 +147,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /projects/{id}/budget", acct(s.projectBudgetSave))
 	mux.Handle("POST /projects/{id}/milestones", acct(s.projectMilestoneCreate))
 	mux.Handle("POST /projects/{id}/milestones/{milestoneID}/delete", acct(s.projectMilestoneDelete))
-	mux.Handle("POST /projects/{id}/milestones/{milestoneID}/allocations", acct(s.projectAllocationCreate))
+	mux.Handle("POST /projects/{id}/allocations", acct(s.projectAllocationCreate))
 	mux.Handle("POST /projects/{id}/allocations/{allocationID}/delete", acct(s.projectAllocationDelete))
 	mux.Handle("POST /projects/{id}", acct(s.projectUpdate))
 	mux.Handle("POST /projects/{id}/delete", acct(s.projectDelete))

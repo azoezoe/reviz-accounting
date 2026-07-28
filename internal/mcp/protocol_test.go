@@ -9,7 +9,6 @@ func TestBudgetToolsAreAdvertised(t *testing.T) {
 		"get_project_budget":        false,
 		"list_project_transactions": false,
 		"save_project_budget":       false,
-		"create_project_milestone":  false,
 		"create_budget_allocation":  false,
 		"create_budget_posting":     false,
 	}

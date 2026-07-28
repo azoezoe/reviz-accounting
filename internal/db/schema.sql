@@ -39,10 +39,14 @@ CREATE TABLE IF NOT EXISTS project_milestones (
  name TEXT NOT NULL, planned_income_cents BIGINT NOT NULL DEFAULT 0 CHECK (planned_income_cents >= 0), sort_order INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS project_budget_allocations (
- id BIGSERIAL PRIMARY KEY, milestone_id BIGINT NOT NULL REFERENCES project_milestones(id) ON DELETE CASCADE,
+ id BIGSERIAL PRIMARY KEY, project_id BIGINT REFERENCES projects(id) ON DELETE CASCADE, milestone_id BIGINT REFERENCES project_milestones(id) ON DELETE CASCADE,
  recipient_kind TEXT NOT NULL CHECK (recipient_kind IN ('labor_compensation','company_reserve','cost_expense')), counterparty_id BIGINT REFERENCES counterparties(id) ON DELETE SET NULL,
  recipient_name TEXT NOT NULL, planned_amount_cents BIGINT NOT NULL DEFAULT 0 CHECK (planned_amount_cents >= 0)
 );
+ALTER TABLE project_budget_allocations ADD COLUMN IF NOT EXISTS project_id BIGINT REFERENCES projects(id) ON DELETE CASCADE;
+ALTER TABLE project_budget_allocations ALTER COLUMN milestone_id DROP NOT NULL;
+UPDATE project_budget_allocations a SET project_id=m.project_id FROM project_milestones m WHERE a.milestone_id=m.id AND a.project_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_budget_alloc_project ON project_budget_allocations(project_id);
 CREATE TABLE IF NOT EXISTS transaction_budget_allocations (
  id BIGSERIAL PRIMARY KEY, transaction_id BIGINT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
  milestone_id BIGINT REFERENCES project_milestones(id) ON DELETE SET NULL,

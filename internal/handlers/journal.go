@@ -173,13 +173,9 @@ func (s *Server) journalEdit(w http.ResponseWriter, r *http.Request) {
 	counterparties, _ := models.ListCounterparties(s.DB, "")
 	attachments, _ := models.ListAttachments(s.DB, id)
 	postings, _ := models.ListBudgetPostings(s.DB, id)
-	var milestones []models.Milestone
-	allocations := map[int64][]models.BudgetAllocation{}
+	var allocations []models.BudgetAllocation
 	if t.ProjectID.Valid {
-		milestones, _ = models.ListMilestones(s.DB, t.ProjectID.Int64)
-		for _, m := range milestones {
-			allocations[m.ID], _ = models.ListBudgetAllocations(s.DB, m.ID)
-		}
+		allocations, _ = models.ListProjectBudgetAllocations(s.DB, t.ProjectID.Int64)
 	}
 
 	s.render(w, r, "journal_form.html", map[string]any{
@@ -194,7 +190,6 @@ func (s *Server) journalEdit(w http.ResponseWriter, r *http.Request) {
 		"Counterparties":    counterparties,
 		"Attachments":       attachments,
 		"BudgetPostings":    postings,
-		"BudgetMilestones":  milestones,
 		"BudgetAllocations": allocations,
 		"Active":            "journal",
 	})
@@ -218,34 +213,22 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	p := &models.BudgetPosting{TransactionID: txID, Kind: kind, AmountCents: amt, Note: r.FormValue("note")}
-	if mid := parseInt64(r.FormValue("milestone_id")); mid > 0 {
-		p.MilestoneID = mid
-		p.MilestoneValid = true
-	}
 	if aid := parseInt64(r.FormValue("budget_allocation_id")); aid > 0 {
 		p.AllocationID = aid
 		p.AllocationValid = true
 	}
-	if kind != "company_shared_cost" && !p.MilestoneValid {
-		http.Error(w, "請選擇請款批次", 400)
-		return
-	}
-	if kind == "company_shared_cost" && p.MilestoneValid {
-		http.Error(w, "公司共用池支出不應歸屬請款批次", 400)
-		return
-	}
 	if p.AllocationValid {
-		if !p.MilestoneValid {
-			http.Error(w, "選擇分配時也必須選擇請款批次", 400)
+		if !t.ProjectID.Valid {
+			http.Error(w, "此交易未指定專案", 400)
 			return
 		}
-		ok, e := models.BudgetAllocationBelongsToMilestone(s.DB, p.AllocationID, p.MilestoneID)
+		ok, e := models.BudgetAllocationBelongsToProject(s.DB, p.AllocationID, t.ProjectID.Int64)
 		if e != nil {
 			s.error500(w, e)
 			return
 		}
 		if !ok {
-			http.Error(w, "分配項目不屬於所選請款批次", 400)
+			http.Error(w, "分配項目不屬於交易專案", 400)
 			return
 		}
 	}
