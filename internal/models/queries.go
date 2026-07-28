@@ -313,14 +313,17 @@ func DeleteCounterparty(d *sql.DB, id int64) error {
 // ----- Transactions -----
 
 type TxFilter struct {
-	YearMonth  string // "" or "YYYY-MM"
-	Year       string // "" or "YYYY"
-	CategoryID int64
-	ProjectID  int64
-	AccountID  int64
-	SearchText string
-	Limit      int
-	Offset     int
+	YearMonth                 string // "" or "YYYY-MM"
+	Year                      string // "" or "YYYY"
+	CategoryID                int64
+	ProjectID                 int64
+	AccountID                 int64
+	BudgetAllocationID        int64
+	UnallocatedProjectExpense bool
+	ProjectIncomeOnly         bool
+	SearchText                string
+	Limit                     int
+	Offset                    int
 }
 
 func ListTransactions(d *sql.DB, f TxFilter) ([]Transaction, int, error) {
@@ -342,6 +345,16 @@ func ListTransactions(d *sql.DB, f TxFilter) ([]Transaction, int, error) {
 	if f.ProjectID > 0 {
 		where = append(where, `t.project_id=?`)
 		args = append(args, f.ProjectID)
+	}
+	if f.BudgetAllocationID > 0 {
+		where = append(where, `EXISTS (SELECT 1 FROM transaction_budget_allocations bpa WHERE bpa.transaction_id=t.id AND bpa.budget_allocation_id=?)`)
+		args = append(args, f.BudgetAllocationID)
+	}
+	if f.UnallocatedProjectExpense {
+		where = append(where, `t.from_account_id IS NOT NULL AND t.to_account_id IS NULL AND NOT EXISTS (SELECT 1 FROM transaction_budget_allocations bpa WHERE bpa.transaction_id=t.id)`)
+	}
+	if f.ProjectIncomeOnly {
+		where = append(where, `t.to_account_id IS NOT NULL AND t.from_account_id IS NULL`)
 	}
 	if f.AccountID > 0 {
 		where = append(where, `(t.from_account_id=? OR t.to_account_id=?)`)

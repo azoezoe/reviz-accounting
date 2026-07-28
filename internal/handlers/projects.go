@@ -96,7 +96,23 @@ func (s *Server) projectBudgetPage(w http.ResponseWriter, r *http.Request) {
 		s.error500(w, err)
 		return
 	}
-	transactions, _, err := models.ListTransactions(s.DB, models.TxFilter{ProjectID: id})
+	filterID := parseInt64(r.URL.Query().Get("allocation_id"))
+	filter := models.TxFilter{ProjectID: id}
+	if filterID == -1 {
+		filter.UnallocatedProjectExpense = true
+	} else if filterID > 0 {
+		for _, allocation := range allocations {
+			if allocation.ID == filterID {
+				if allocation.RecipientKind == "company_reserve" {
+					filter.ProjectIncomeOnly = true
+				} else {
+					filter.BudgetAllocationID = filterID
+				}
+				break
+			}
+		}
+	}
+	transactions, _, err := models.ListTransactions(s.DB, filter)
 	if err != nil {
 		s.error500(w, err)
 		return
@@ -133,7 +149,7 @@ func (s *Server) projectBudgetPage(w http.ResponseWriter, r *http.Request) {
 		views = append(views, allocationView{BudgetAllocation: a, ActualPaid: report.PaidByAllocation[a.ID], Accrued: accrued})
 	}
 	cps, _ := models.ListCounterparties(s.DB, "")
-	s.render(w, r, "project_budget.html", map[string]any{"Title": "專案預算", "Crumbs": []string{"專案", p.Name, "預算"}, "Project": p, "Budget": b, "Allocations": views, "ProjectTransactions": txViews, "Counterparties": cps, "ActualIncome": report.IncomeCents, "PlannedTotal": plannedTotal, "PlannedCompany": plannedCompany, "Active": "projects"})
+	s.render(w, r, "project_budget.html", map[string]any{"Title": "專案預算", "Crumbs": []string{"專案", p.Name, "預算"}, "Project": p, "Budget": b, "Allocations": views, "ProjectTransactions": txViews, "JournalAllocationFilter": filterID, "Counterparties": cps, "ActualIncome": report.IncomeCents, "PlannedTotal": plannedTotal, "PlannedCompany": plannedCompany, "Active": "projects"})
 }
 
 func (s *Server) projectBudgetSave(w http.ResponseWriter, r *http.Request) {
