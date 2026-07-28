@@ -213,7 +213,7 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	kind := r.FormValue("allocation_kind")
-	if kind != "income" && kind != "partner_payout" && kind != "company_reserve" && kind != "company_shared_cost" {
+	if kind != "income" && kind != "partner_payout" && kind != "cost_expense" && kind != "company_reserve" && kind != "company_shared_cost" {
 		http.Error(w, "分攤類型錯誤", 400)
 		return
 	}
@@ -249,9 +249,20 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	if kind == "partner_payout" && !p.AllocationValid {
-		http.Error(w, "夥伴付款必須對應一個預算分配", 400)
+	if (kind == "partner_payout" || kind == "cost_expense") && !p.AllocationValid {
+		http.Error(w, "勞務報酬或成本支出必須對應一個預算分配", 400)
 		return
+	}
+	if p.AllocationValid {
+		allocationKind, e := models.BudgetAllocationKind(s.DB, p.AllocationID)
+		if e != nil {
+			s.error500(w, e)
+			return
+		}
+		if (kind == "partner_payout" && allocationKind != "labor_compensation") || (kind == "cost_expense" && allocationKind != "cost_expense") || (kind == "company_reserve" && allocationKind != "company_reserve") {
+			http.Error(w, "分攤類型必須對應相同用途類別的預算項目", 400)
+			return
+		}
 	}
 	// A company reserve is a reporting attribution of income, not a second
 	// cash movement. Other types can be split, but each cash-backed type must

@@ -166,7 +166,7 @@ func (s *Server) projectBudgetPage(w http.ResponseWriter, r *http.Request) {
 		av := make([]allocationView, 0, len(a))
 		for _, x := range a {
 			total += x.PlannedAmountCents
-			if x.RecipientKind == "company" {
+			if x.RecipientKind == "company_reserve" {
 				plannedCompany += x.PlannedAmountCents
 			}
 			av = append(av, allocationView{BudgetAllocation: x, ActualPaid: actuals.PaidByAllocation[x.ID]})
@@ -218,7 +218,7 @@ func (s *Server) projectAllocationCreate(w http.ResponseWriter, r *http.Request)
 	amt, e := money.ParseCents(r.FormValue("planned_amount"))
 	kind := r.FormValue("recipient_kind")
 	name := r.FormValue("recipient_name")
-	if e != nil || amt < 0 || (kind != "company" && kind != "partner") || name == "" {
+	if e != nil || amt < 0 || (kind != "company_reserve" && kind != "labor_compensation" && kind != "cost_expense") || name == "" {
 		http.Error(w, "請填寫分配項目與金額", 400)
 		return
 	}

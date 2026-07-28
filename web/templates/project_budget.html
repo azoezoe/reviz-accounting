@@ -38,12 +38,12 @@
     <form method="post" action="/projects/{{$p.ID}}/milestones/{{.ID}}/delete" onsubmit="return confirm('刪除此請款批次？')"><button class="lg-btn-link" style="color:var(--danger-700)">刪除批次</button></form>
   </div>
   <table class="lg-table"><thead><tr><th>對象</th><th>類型</th><th class="right">預計分配</th><th class="right">實際已付</th><th></th></tr></thead><tbody>
-  {{range .Allocations}}<tr><td>{{.RecipientName}}</td><td>{{if eq .RecipientKind "company"}}公司保留{{else}}夥伴{{end}}</td><td class="right">{{money .PlannedAmountCents}}</td><td class="right">{{if eq .RecipientKind "company"}}—{{else}}{{money .ActualPaid}}{{end}}</td><td class="right"><form method="post" action="/projects/{{$p.ID}}/allocations/{{.ID}}/delete"><button class="lg-btn-link" style="color:var(--danger-700)">刪除</button></form></td></tr>{{else}}<tr><td colspan="5" style="color:var(--text-faint)">尚未分配</td></tr>{{end}}
+  {{range .Allocations}}<tr><td>{{.RecipientName}}</td><td>{{if eq .RecipientKind "company_reserve"}}公司保留{{else if eq .RecipientKind "labor_compensation"}}勞務報酬{{else}}成本支出{{end}}</td><td class="right">{{money .PlannedAmountCents}}</td><td class="right">{{if eq .RecipientKind "company_reserve"}}—{{else}}{{money .ActualPaid}}{{end}}</td><td class="right"><form method="post" action="/projects/{{$p.ID}}/allocations/{{.ID}}/delete"><button class="lg-btn-link" style="color:var(--danger-700)">刪除</button></form></td></tr>{{else}}<tr><td colspan="5" style="color:var(--text-faint)">尚未分配</td></tr>{{end}}
   </tbody></table>
   <p class="lg-panel__sub" style="margin:12px 0 0;">本期已規劃分配 {{money .PlannedAllocated}}{{if gt .PlannedAllocated .PlannedIncomeCents}} · <span style="color:var(--danger-700)">超出期款</span>{{end}}</p>
   <form method="post" action="/projects/{{$p.ID}}/milestones/{{.ID}}/allocations" style="display:grid;grid-template-columns:160px 1fr 180px 160px auto;gap:10px;align-items:end;margin-top:14px">
-    <div class="lg-field"><label class="lg-field__label">類型</label><select class="lg-select" name="recipient_kind"><option value="company">公司保留</option><option value="partner">夥伴</option></select></div>
-    <div class="lg-field"><label class="lg-field__label">名稱</label><input class="lg-input" name="recipient_name" placeholder="公司／夥伴姓名" required></div>
+    <div class="lg-field"><label class="lg-field__label">用途類別</label><select class="lg-select" name="recipient_kind"><option value="labor_compensation">勞務報酬</option><option value="company_reserve">公司保留</option><option value="cost_expense">成本支出</option></select></div>
+    <div class="lg-field"><label class="lg-field__label">對象／項目名稱</label><input class="lg-input" name="recipient_name" placeholder="例如：X 夥伴、公司、場地費" required></div>
     <div class="lg-field"><label class="lg-field__label">交易對象（選填）</label><select class="lg-select" name="counterparty_id"><option value="">—</option>{{range $.Counterparties}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select></div>
     <div class="lg-field"><label class="lg-field__label">預計分配</label><input class="lg-input" name="planned_amount" inputmode="decimal" required></div><button class="lg-btn-primary">加入</button>
   </form>

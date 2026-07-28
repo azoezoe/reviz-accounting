@@ -185,7 +185,7 @@ func GetProjectBudgetActuals(d *sql.DB, projectID int64) (ProjectBudgetActuals, 
 		FROM transaction_budget_allocations p
 		JOIN project_budget_allocations a ON a.id=p.budget_allocation_id
 		JOIN project_milestones m ON m.id=a.milestone_id
-		WHERE m.project_id=? AND p.allocation_kind='partner_payout'
+		WHERE m.project_id=? AND p.allocation_kind IN ('partner_payout','cost_expense')
 		GROUP BY p.budget_allocation_id`, projectID)
 	if err != nil {
 		return a, err
@@ -214,6 +214,12 @@ func BudgetAllocationBelongsToMilestone(d *sql.DB, allocationID, milestoneID int
 	var found bool
 	err := d.QueryRow(`SELECT EXISTS(SELECT 1 FROM project_budget_allocations WHERE id=? AND milestone_id=?)`, allocationID, milestoneID).Scan(&found)
 	return found, err
+}
+
+func BudgetAllocationKind(d *sql.DB, allocationID int64) (string, error) {
+	var kind string
+	err := d.QueryRow(`SELECT recipient_kind FROM project_budget_allocations WHERE id=?`, allocationID).Scan(&kind)
+	return kind, err
 }
 
 // BudgetPostingCountsForProject identifies journal entries linked to a project

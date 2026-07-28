@@ -176,8 +176,8 @@ func tools() []map[string]any {
 		{"name": "upload_receipt", "description": "上傳並附加單據到既有交易。傳 transaction_id、filename、mime_type 與 content_base64；只接受 PDF、JPG、PNG、WebP，最大 20 MB。", "inputSchema": req("transaction_id", "filename", "mime_type", "content_base64")},
 		{"name": "save_project_budget", "description": "新增或更新專案總預算；amount 為分。傳 project_id、total_amount，可選 note。", "inputSchema": req("project_id", "total_amount")},
 		{"name": "create_project_milestone", "description": "建立專案請款批次；金額為分。傳 project_id、name、planned_income，可選 note、sort_order。", "inputSchema": req("project_id", "name", "planned_income")},
-		{"name": "create_budget_allocation", "description": "建立批次的公司保留或夥伴分配；金額為分。傳 milestone_id、recipient_kind(company|partner)、recipient_name、planned_amount，可選 counterparty_id。", "inputSchema": req("milestone_id", "recipient_kind", "recipient_name", "planned_amount")},
-		{"name": "create_budget_posting", "description": "把既有日記帳交易分攤至預算。傳 transaction_id、allocation_kind(income|partner_payout|company_reserve|company_shared_cost)、amount(分)。income/company_reserve/partner_payout 要有 milestone_id；partner_payout 還要 budget_allocation_id。company_shared_cost 不帶 milestone_id。", "inputSchema": req("transaction_id", "allocation_kind", "amount")},
+		{"name": "create_budget_allocation", "description": "建立批次預定分配；金額為分。recipient_kind 必須是 labor_compensation（勞務報酬）、company_reserve（公司保留）或 cost_expense（成本支出）。傳 milestone_id、recipient_kind、recipient_name、planned_amount，可選 counterparty_id。", "inputSchema": req("milestone_id", "recipient_kind", "recipient_name", "planned_amount")},
+		{"name": "create_budget_posting", "description": "把既有日記帳交易分攤至預算。傳 transaction_id、allocation_kind(income|partner_payout|cost_expense|company_reserve|company_shared_cost)、amount(分)。income/company_reserve/partner_payout/cost_expense 要有 milestone_id；partner_payout/cost_expense 還要 budget_allocation_id。company_shared_cost 不帶 milestone_id。", "inputSchema": req("transaction_id", "allocation_kind", "amount")},
 	}
 }
 
@@ -351,7 +351,7 @@ func (s *Server) createProjectMilestone(a map[string]any) (any, error) {
 func (s *Server) createBudgetAllocation(a map[string]any) (any, error) {
 	milestoneID, amount := numID(a, "milestone_id"), numID(a, "planned_amount")
 	kind, name := str(a, "recipient_kind"), strings.TrimSpace(str(a, "recipient_name"))
-	if milestoneID <= 0 || amount < 0 || name == "" || (kind != "company" && kind != "partner") {
+	if milestoneID <= 0 || amount < 0 || name == "" || (kind != "company_reserve" && kind != "labor_compensation" && kind != "cost_expense") {
 		return nil, fmtErr("milestone_id、recipient_kind、recipient_name 與非負的 planned_amount（分）必填")
 	}
 	if _, err := models.ListBudgetAllocations(s.DB, milestoneID); err != nil {
@@ -368,7 +368,7 @@ func (s *Server) createBudgetAllocation(a map[string]any) (any, error) {
 func (s *Server) createBudgetPosting(a map[string]any) (any, error) {
 	txID, amount := numID(a, "transaction_id"), numID(a, "amount")
 	kind := str(a, "allocation_kind")
-	if txID <= 0 || amount <= 0 || (kind != "income" && kind != "partner_payout" && kind != "company_reserve" && kind != "company_shared_cost") {
+	if txID <= 0 || amount <= 0 || (kind != "income" && kind != "partner_payout" && kind != "cost_expense" && kind != "company_reserve" && kind != "company_shared_cost") {
 		return nil, fmtErr("transaction_id、正數 amount（分）及有效 allocation_kind 必填")
 	}
 	t, err := models.GetTransaction(s.DB, txID)
@@ -397,13 +397,20 @@ func (s *Server) createBudgetPosting(a map[string]any) (any, error) {
 			return nil, fmtErr("請款批次不屬於交易專案")
 		}
 	}
-	if kind == "partner_payout" && !p.AllocationValid {
-		return nil, fmtErr("partner_payout 必須提供 budget_allocation_id")
+	if (kind == "partner_payout" || kind == "cost_expense") && !p.AllocationValid {
+		return nil, fmtErr("partner_payout 或 cost_expense 必須提供 budget_allocation_id")
 	}
 	if p.AllocationValid {
 		ok, e := models.BudgetAllocationBelongsToMilestone(s.DB, p.AllocationID, p.MilestoneID)
 		if e != nil || !ok {
 			return nil, fmtErr("預算分配不屬於所選請款批次")
+		}
+		allocationKind, e := models.BudgetAllocationKind(s.DB, p.AllocationID)
+		if e != nil {
+			return nil, e
+		}
+		if (kind == "partner_payout" && allocationKind != "labor_compensation") || (kind == "cost_expense" && allocationKind != "cost_expense") || (kind == "company_reserve" && allocationKind != "company_reserve") {
+			return nil, fmtErr("分攤類型必須對應相同用途類別的預算項目")
 		}
 	}
 	if kind != "company_reserve" {

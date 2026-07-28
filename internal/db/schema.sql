@@ -40,16 +40,24 @@ CREATE TABLE IF NOT EXISTS project_milestones (
 );
 CREATE TABLE IF NOT EXISTS project_budget_allocations (
  id BIGSERIAL PRIMARY KEY, milestone_id BIGINT NOT NULL REFERENCES project_milestones(id) ON DELETE CASCADE,
- recipient_kind TEXT NOT NULL CHECK (recipient_kind IN ('company','partner')), counterparty_id BIGINT REFERENCES counterparties(id) ON DELETE SET NULL,
+ recipient_kind TEXT NOT NULL CHECK (recipient_kind IN ('labor_compensation','company_reserve','cost_expense')), counterparty_id BIGINT REFERENCES counterparties(id) ON DELETE SET NULL,
  recipient_name TEXT NOT NULL, planned_amount_cents BIGINT NOT NULL DEFAULT 0 CHECK (planned_amount_cents >= 0)
 );
 CREATE TABLE IF NOT EXISTS transaction_budget_allocations (
  id BIGSERIAL PRIMARY KEY, transaction_id BIGINT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
  milestone_id BIGINT REFERENCES project_milestones(id) ON DELETE SET NULL,
  budget_allocation_id BIGINT REFERENCES project_budget_allocations(id) ON DELETE SET NULL,
- allocation_kind TEXT NOT NULL CHECK (allocation_kind IN ('income','partner_payout','company_reserve','company_shared_cost')),
+ allocation_kind TEXT NOT NULL CHECK (allocation_kind IN ('income','partner_payout','cost_expense','company_reserve','company_shared_cost')),
  amount_cents BIGINT NOT NULL CHECK (amount_cents > 0), note TEXT NOT NULL DEFAULT ''
 );
+-- Existing deployments used company/partner labels. Preserve their intent
+-- while upgrading to budget-purpose categories.
+ALTER TABLE project_budget_allocations DROP CONSTRAINT IF EXISTS project_budget_allocations_recipient_kind_check;
+UPDATE project_budget_allocations SET recipient_kind='company_reserve' WHERE recipient_kind='company';
+UPDATE project_budget_allocations SET recipient_kind='labor_compensation' WHERE recipient_kind='partner';
+ALTER TABLE project_budget_allocations ADD CONSTRAINT project_budget_allocations_recipient_kind_check CHECK (recipient_kind IN ('labor_compensation','company_reserve','cost_expense'));
+ALTER TABLE transaction_budget_allocations DROP CONSTRAINT IF EXISTS transaction_budget_allocations_allocation_kind_check;
+ALTER TABLE transaction_budget_allocations ADD CONSTRAINT transaction_budget_allocations_allocation_kind_check CHECK (allocation_kind IN ('income','partner_payout','cost_expense','company_reserve','company_shared_cost'));
 CREATE TABLE IF NOT EXISTS sessions (
  id TEXT PRIMARY KEY, user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text,
  expires_at TEXT NOT NULL, user_agent TEXT NOT NULL DEFAULT '', ip TEXT NOT NULL DEFAULT ''
