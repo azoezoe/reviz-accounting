@@ -511,6 +511,13 @@
 .lg-project-drawer-row span { color:var(--text-muted); }
 .lg-project-drawer-row strong { font-family:var(--font-mono); font-size:11px; color:var(--text-strong); text-align:right; }
 .lg-project-drawer-note { margin:0; padding:10px 12px; color:var(--text-muted); background:var(--surface-tint); border-radius:var(--r-sm); font-size:13px; line-height:1.6; }
+.lg-budget-progress { position:relative; height:8px; overflow:hidden; border-radius:99px; background:var(--bg-muted); min-width:130px; }
+.lg-budget-progress__accrued,.lg-budget-progress__actual { position:absolute; inset:0 auto 0 0; border-radius:99px; }
+.lg-budget-progress__accrued { background:var(--info-300); }
+.lg-budget-progress__actual { background:var(--accent); opacity:.95; }
+.lg-budget-progress__label { display:block; margin-top:4px; font-family:var(--font-mono); font-size:10px; color:var(--text-faint); }
+.lg-progress-key { display:inline-block; width:8px; height:8px; border-radius:99px; vertical-align:0; }
+.lg-progress-key--accrued { background:var(--info-300); }.lg-progress-key--actual { background:var(--accent); }
 
 /* This drawer is launched from a long, document-scrolling journal. It must
    therefore be viewport-fixed rather than inheriting the page's height. */
