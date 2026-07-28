@@ -6,6 +6,7 @@ func TestBudgetToolsAreAdvertised(t *testing.T) {
 	want := map[string]bool{
 		"list_projects":             false,
 		"create_project":            false,
+		"update_project":            false,
 		"get_project_budget":        false,
 		"list_project_transactions": false,
 		"save_project_budget":       false,

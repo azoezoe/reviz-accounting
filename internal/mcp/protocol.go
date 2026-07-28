@@ -102,6 +102,11 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 			return nil, fmtErr("權限不足")
 		}
 		return s.createProject(a)
+	case "update_project":
+		if !u.AtLeast(auth.RoleAccountant) {
+			return nil, fmtErr("權限不足")
+		}
+		return s.updateProject(a)
 	case "get_project_budget":
 		return s.projectBudget(numID(a, "project_id"))
 	case "list_project_transactions":
@@ -166,7 +171,8 @@ func tools() []map[string]any {
 		{"name": "list_categories", "description": "列出收入、成本與費用分類", "inputSchema": obj},
 		{"name": "list_projects", "description": "列出專案", "inputSchema": obj},
 		{"name": "create_project", "description": "建立專案。傳 name；可選 start_date、end_date（YYYY-MM-DD）與 note。", "inputSchema": req("name")},
-		{"name": "get_project_budget", "description": "取得專案的總預算、請款批次、各對象預計/實際，以及已連結專案的日記帳交易與分攤狀態。傳 project_id。", "inputSchema": req("project_id")},
+		{"name": "update_project", "description": "更新既有專案。傳 project_id；可更新 name、start_date、end_date、note，至少提供一個要更新的欄位。", "inputSchema": req("project_id")},
+		{"name": "get_project_budget", "description": "取得專案的總預算、收入進度、預定分配及已連結日記帳交易與分攤狀態。傳 project_id。", "inputSchema": req("project_id")},
 		{"name": "list_project_transactions", "description": "列出已連結到專案的日記帳交易，並標示每筆是否已有預算分攤。傳 project_id。", "inputSchema": req("project_id")},
 		{"name": "list_transactions", "description": "查詢交易，可帶 year_month、search、limit", "inputSchema": obj},
 		{"name": "create_transaction", "description": "新增交易；amount 是分，傳 date、description、amount、from_account_id/to_account_id、category_id、counterparty、note。", "inputSchema": req("date", "description", "amount")},
@@ -232,6 +238,51 @@ func (s *Server) createProject(a map[string]any) (any, error) {
 		return nil, err
 	}
 	return content(map[string]any{"id": id, "name": name}, nil)
+}
+
+func (s *Server) updateProject(a map[string]any) (any, error) {
+	projectID := numID(a, "project_id")
+	if projectID <= 0 {
+		return nil, fmtErr("project_id 必填")
+	}
+	p, err := models.GetProject(s.DB, projectID)
+	if err != nil {
+		return nil, fmtErr("找不到專案")
+	}
+	updated := false
+	if _, ok := a["name"]; ok {
+		name := strings.TrimSpace(str(a, "name"))
+		if name == "" {
+			return nil, fmtErr("name 不可為空白")
+		}
+		p.Name = name
+		updated = true
+	}
+	if _, ok := a["start_date"]; ok {
+		p.StartDate = models.NullStringFrom(str(a, "start_date"))
+		updated = true
+	}
+	if _, ok := a["end_date"]; ok {
+		p.EndDate = models.NullStringFrom(str(a, "end_date"))
+		updated = true
+	}
+	if _, ok := a["note"]; ok {
+		p.Note = str(a, "note")
+		updated = true
+	}
+	if !updated {
+		return nil, fmtErr("請提供要更新的欄位")
+	}
+	if err := models.UpdateProject(s.DB, p); err != nil {
+		return nil, err
+	}
+	return content(map[string]any{
+		"id":         p.ID,
+		"name":       p.Name,
+		"start_date": p.StartDate.String,
+		"end_date":   p.EndDate.String,
+		"note":       p.Note,
+	}, nil)
 }
 
 func (s *Server) projectBudget(projectID int64) (any, error) {
