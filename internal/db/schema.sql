@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS project_quotes (
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
 );
 -- A proposal exists before an accounting project.  It deliberately has no
--- foreign key to projects; an accepted version creates one exactly once.
+-- foreign key to projects. An accepted version creates one exactly once.
 CREATE TABLE IF NOT EXISTS quotes (
  id BIGSERIAL PRIMARY KEY, quote_no TEXT NOT NULL UNIQUE, title TEXT NOT NULL DEFAULT '',
  client_name TEXT NOT NULL DEFAULT '', issuer_name TEXT NOT NULL DEFAULT '', currency TEXT NOT NULL DEFAULT 'TWD',
