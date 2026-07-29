@@ -31,17 +31,23 @@ func TestBudgetToolsAreAdvertised(t *testing.T) {
 
 func TestManagementToolsAreAdvertised(t *testing.T) {
 	want := map[string]bool{
-		"get_project_management":    false,
-		"create_project_quote":      false,
-		"create_quote_item":         false,
-		"revise_project_quote":      false,
-		"accept_project_quote":      false,
-		"create_project_role":       false,
-		"create_time_entry":         false,
-		"create_project_receivable": false,
-		"toggle_project_receivable": false,
-		"create_project_cost":       false,
-		"toggle_project_cost":       false,
+		"list_quotes":                  false,
+		"get_quote":                    false,
+		"create_quote":                 false,
+		"create_standalone_quote_item": false,
+		"revise_quote":                 false,
+		"accept_quote":                 false,
+		"get_project_management":       false,
+		"create_project_quote":         false,
+		"create_quote_item":            false,
+		"revise_project_quote":         false,
+		"accept_project_quote":         false,
+		"create_project_role":          false,
+		"create_time_entry":            false,
+		"create_project_receivable":    false,
+		"toggle_project_receivable":    false,
+		"create_project_cost":          false,
+		"toggle_project_cost":          false,
 	}
 	for _, tool := range tools() {
 		if _, ok := want[tool["name"].(string)]; ok {
@@ -58,6 +64,7 @@ func TestManagementToolsAreAdvertised(t *testing.T) {
 func TestViewerCannotCallManagementWriteTool(t *testing.T) {
 	s := &Server{}
 	names := []string{
+		"create_quote", "create_standalone_quote_item", "revise_quote", "accept_quote",
 		"create_project_quote", "create_quote_item", "revise_project_quote", "accept_project_quote",
 		"create_project_role", "create_time_entry", "create_project_receivable",
 		"toggle_project_receivable", "create_project_cost", "toggle_project_cost",

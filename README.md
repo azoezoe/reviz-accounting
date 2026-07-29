@@ -58,7 +58,7 @@ Session 用 cookie + DB 存（30 天）。停用使用者會自動把該人的 s
 
 新增的專案營運功能沿用相同權限：`viewer` 可讀取報價版本、工時、應收與成本；`accountant`、`owner` 可新增、修訂與接受報價、記錄工時及更新收付款狀態。MCP OAuth token 也綁定同一使用者與角色，所有 MCP 呼叫會以實際工具名稱寫入 `mcp_audit_log`。
 
-MCP 同步提供 `get_project_management`、報價建立／修訂／接受、報價明細、角色工時、應收款與成本等工具。`accept_project_quote` 和 Web 操作使用相同的原子化專案建立與預算分配流程。
+MCP 提供獨立報價的查詢、建立、明細、修訂與接受工具；`accept_quote` 會在客戶同意後原子化建立正式專案與專案總預算。既有的 `get_project_management` 與專案營運工具則維持供已成立專案使用。
 
 ## 編譯
 

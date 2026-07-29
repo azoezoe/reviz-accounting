@@ -46,6 +46,24 @@ CREATE TABLE IF NOT EXISTS project_quotes (
  note TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','sent','accepted','rejected')),
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
 );
+-- A proposal exists before an accounting project.  It deliberately has no
+-- foreign key to projects; an accepted version creates one exactly once.
+CREATE TABLE IF NOT EXISTS quotes (
+ id BIGSERIAL PRIMARY KEY, quote_no TEXT NOT NULL UNIQUE, title TEXT NOT NULL DEFAULT '',
+ client_name TEXT NOT NULL DEFAULT '', issuer_name TEXT NOT NULL DEFAULT '', currency TEXT NOT NULL DEFAULT 'TWD',
+ discount_type TEXT NOT NULL DEFAULT 'amount' CHECK (discount_type IN ('amount','percent')),
+ discount_value NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (discount_value >= 0),
+ tax_rate NUMERIC(6,3) NOT NULL DEFAULT 5 CHECK (tax_rate >= 0), note TEXT NOT NULL DEFAULT '',
+ status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','sent','accepted','rejected')),
+ version_no INTEGER NOT NULL DEFAULT 1, parent_quote_id BIGINT REFERENCES quotes(id) ON DELETE SET NULL,
+ project_id BIGINT UNIQUE REFERENCES projects(id) ON DELETE SET NULL,
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
+);
+CREATE TABLE IF NOT EXISTS quote_items (
+ id BIGSERIAL PRIMARY KEY, quote_id BIGINT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+ description TEXT NOT NULL, quantity NUMERIC(12,2) NOT NULL DEFAULT 1, unit TEXT NOT NULL DEFAULT '式',
+ unit_price_cents BIGINT NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0
+);
 ALTER TABLE project_quotes ADD COLUMN IF NOT EXISTS proposal_key TEXT NOT NULL DEFAULT '';
 ALTER TABLE project_quotes ADD COLUMN IF NOT EXISTS version_no INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE project_quotes ADD COLUMN IF NOT EXISTS parent_quote_id BIGINT REFERENCES project_quotes(id) ON DELETE SET NULL;

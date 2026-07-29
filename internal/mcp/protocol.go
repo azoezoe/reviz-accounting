@@ -113,6 +113,28 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 		return s.projectTransactions(numID(a, "project_id"))
 	case "get_project_management":
 		return s.projectManagement(numID(a, "project_id"))
+	case "list_quotes":
+		rows, e := s.DB.Query(`SELECT id FROM quotes ORDER BY id DESC`)
+		if e != nil {
+			return nil, e
+		}
+		defer rows.Close()
+		var quotes []map[string]any
+		for rows.Next() {
+			var id int64
+			if e = rows.Scan(&id); e != nil {
+				return nil, e
+			}
+			q, e := s.standaloneQuote(id)
+			if e != nil {
+				return nil, e
+			}
+			quotes = append(quotes, q)
+		}
+		return content(quotes, rows.Err())
+	case "get_quote":
+		q, e := s.standaloneQuote(numID(a, "quote_id"))
+		return content(q, e)
 	case "list_transactions":
 		f := models.TxFilter{YearMonth: str(a, "year_month"), SearchText: str(a, "search"), Limit: asInt(num(a, "limit"))}
 		if f.Limit == 0 {
@@ -161,7 +183,7 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 		default:
 			return s.createBudgetPosting(a)
 		}
-	case "create_project_quote", "create_quote_item", "revise_project_quote", "accept_project_quote",
+	case "create_quote", "create_standalone_quote_item", "revise_quote", "accept_quote", "create_project_quote", "create_quote_item", "revise_project_quote", "accept_project_quote",
 		"create_project_role", "create_time_entry", "create_project_receivable",
 		"toggle_project_receivable", "create_project_cost", "toggle_project_cost":
 		if !u.AtLeast(auth.RoleAccountant) {
@@ -184,6 +206,12 @@ func tools() []map[string]any {
 		{"name": "get_project_budget", "description": "取得專案的總預算、收入進度、預定分配及已連結日記帳交易與分攤狀態。傳 project_id。", "inputSchema": req("project_id")},
 		{"name": "list_project_transactions", "description": "列出已連結到專案的日記帳交易，並標示每筆是否已有預算分攤。傳 project_id。", "inputSchema": req("project_id")},
 		{"name": "get_project_management", "description": "取得專案報價版本、角色、預估/實際工時、應收款與成本。viewer 以上可讀取；傳 project_id。", "inputSchema": req("project_id")},
+		{"name": "list_quotes", "description": "列出獨立報價提案；提案尚未建立正式專案。viewer 以上。", "inputSchema": obj},
+		{"name": "get_quote", "description": "取得獨立報價與明細。傳 quote_id。viewer 以上。", "inputSchema": req("quote_id")},
+		{"name": "create_quote", "description": "建立獨立報價提案，不會建立專案。傳 title；可選 quote_no、client_name、issuer_name、currency、折扣、稅率與 note。accountant 以上。", "inputSchema": req("title")},
+		{"name": "create_standalone_quote_item", "description": "在草稿報價加入明細。傳 quote_id、description、unit_price_cents；可選 quantity、unit。accountant 以上。", "inputSchema": req("quote_id", "description", "unit_price_cents")},
+		{"name": "revise_quote", "description": "建立獨立報價的下一修訂版。傳 quote_id。accountant 以上。", "inputSchema": req("quote_id")},
+		{"name": "accept_quote", "description": "客戶同意獨立報價後，一鍵建立正式專案與專案總預算。傳 quote_id；可選 project_name。accountant 以上。", "inputSchema": req("quote_id")},
 		{"name": "create_project_quote", "description": "建立提案報價 V1。傳 project_id；可選 quote_no、title、client_name、issuer_name、currency、discount_type(amount|percent)、discount_value、tax_rate、note。accountant 以上。", "inputSchema": req("project_id")},
 		{"name": "create_quote_item", "description": "在 draft 報價加入明細。傳 project_id、quote_id、description、quantity、unit、unit_price_cents。accountant 以上。", "inputSchema": req("project_id", "quote_id", "description", "unit_price_cents")},
 		{"name": "revise_project_quote", "description": "複製指定報價與全部明細建立下一修訂版；舊 draft 會鎖定為 sent。傳 project_id、quote_id。accountant 以上。", "inputSchema": req("project_id", "quote_id")},
