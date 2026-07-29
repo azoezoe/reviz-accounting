@@ -1205,6 +1205,45 @@
 }
 .lg-proj-card__status .lg-typedot { width: 6px; height: 6px; border-radius: 50%; }
 
+/* Project operations: quotation, time tracking, receivables and costs. */
+.mgmt-form-grid { display:grid; grid-template-columns:repeat(4,minmax(120px,1fr)); gap:10px; align-items:end; margin-bottom:18px; }
+.mgmt-form-grid--compact { grid-template-columns:repeat(3,minmax(110px,1fr)); }
+.mgmt-span { grid-column:span 3; }
+.mgmt-record { border:1px solid var(--border-subtle); border-radius:var(--r-sm); margin-top:10px; background:var(--surface); }
+.mgmt-record > summary { cursor:pointer; display:flex; gap:8px; align-items:center; padding:13px 15px; color:var(--text-strong); font-family:var(--font-body-cn); }
+.mgmt-record > summary span { margin-left:auto; font-family:var(--font-mono); }
+.mgmt-record__body { border-top:1px solid var(--border-subtle); padding:16px; }
+.mgmt-print-head h2 { margin:0; font-family:var(--font-serif-cn); }
+.mgmt-print-head p,.mgmt-note { color:var(--text-muted); font-size:12px; }
+.mgmt-quote-total { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:16px; padding:14px 0; font-family:var(--font-mono); font-size:12px; }
+.mgmt-quote-total strong { color:var(--text-brand); font-size:14px; }
+.mgmt-inline-form { display:grid; grid-template-columns:2fr .6fr .5fr .8fr auto; gap:8px; align-items:end; padding-top:12px; border-top:1px dashed var(--border-subtle); }
+.mgmt-actions { display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:12px; }
+.mgmt-actions form,.mgmt-chip form,.mgmt-list__row form { margin:0; }
+.mgmt-accept { display:flex; gap:7px; align-items:center; }
+.mgmt-accepted { color:var(--success-700); font-size:12px; font-weight:600; }
+.mgmt-chips { display:flex; flex-wrap:wrap; gap:7px; margin:10px 0 16px; }
+.mgmt-chip { display:inline-flex; gap:7px; align-items:center; padding:6px 9px; border-radius:999px; background:var(--surface-tint); font-size:11px; color:var(--text-muted); }
+.mgmt-chip button { border:0; background:none; cursor:pointer; color:var(--danger-700); }
+.mgmt-check { display:flex; gap:7px; align-items:center; min-height:38px; color:var(--text-muted); font-size:12px; }
+.mgmt-list { display:flex; flex-direction:column; }
+.mgmt-list__row { display:grid; grid-template-columns:1fr auto auto auto; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid var(--border-subtle); }
+.mgmt-list__row > div { display:flex; flex-direction:column; gap:3px; }
+.mgmt-list__row small { color:var(--text-muted); }
+.mgmt-list__row b { font-family:var(--font-mono); font-size:12px; }
+.mgmt-list__row.is-done { opacity:.58; }
+@media (max-width: 1000px) {
+  .mgmt-form-grid,.mgmt-form-grid--compact { grid-template-columns:1fr 1fr; }
+  .mgmt-span { grid-column:span 2; }
+  .mgmt-inline-form { grid-template-columns:1fr 1fr; }
+}
+@media print {
+  .lg-side,.lg-top,.lg-page-head,.lg-kpi-grid,.mgmt-record:not([open]),.mgmt-record summary,.mgmt-inline-form,.mgmt-actions,#hours,#cashflow { display:none !important; }
+  .lg-shell,.lg-main { display:block !important; }
+  .lg-content { padding:0 !important; }
+  #quotes,.mgmt-record,.mgmt-record__body { border:0 !important; box-shadow:none !important; padding:0 !important; }
+}
+
 /* ============ CATEGORIES ============ */
 .lg-catcol { display: flex; flex-direction: column; gap: 12px; }
 .lg-catcol__head {

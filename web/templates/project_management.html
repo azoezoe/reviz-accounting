@@ -1,0 +1,118 @@
+{{define "content"}}
+<div class="lg-page-head">
+  <div class="lg-page-head__title-block">
+    <span class="lg-page-eyebrow">STUDIO OPERATIONS</span>
+    <h1 class="lg-page-title">{{.Project.Name}}<span class="lg-page-title__suffix">Management</span></h1>
+    <p style="margin:0;color:var(--text-muted);font-size:14px;">報價、工時、應收與成本集中管理</p>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <a class="lg-btn-link" href="/projects/{{.Project.ID}}/budget">專案預算</a>
+    <a class="lg-btn-link" href="/projects">返回專案</a>
+  </div>
+</div>
+
+<div class="lg-kpi-grid" style="margin-bottom:18px;">
+  <div class="lg-kpi"><p class="lg-kpi__label">最新報價</p><p class="lg-kpi__value">{{money .Summary.QuoteTotalCents}}</p></div>
+  <div class="lg-kpi"><p class="lg-kpi__label">已收／應收</p><p class="lg-kpi__value">{{money .Summary.ReceivedCents}} <small>/ {{money .Summary.ReceivableCents}}</small></p></div>
+  <div class="lg-kpi"><p class="lg-kpi__label">專案成本（TWD）</p><p class="lg-kpi__value">{{money .Summary.CostCents}}</p></div>
+  <div class="lg-kpi"><p class="lg-kpi__label">實際／預估工時</p><p class="lg-kpi__value">{{printf "%.1f" (divf .Summary.ActualMinutes 60)}}h <small>/ {{printf "%.1f" (divf .Summary.EstimatedMinutes 60)}}h</small></p></div>
+</div>
+
+<section class="lg-panel" id="quotes">
+  <div class="lg-panel__head"><div><h3 class="lg-panel__title">報價單</h3><p class="lg-panel__sub">多版本歷史、折扣、稅額與列印</p></div></div>
+  <form method="post" action="/projects/{{.Project.ID}}/quotes" class="mgmt-form-grid">
+    <label class="lg-field"><span class="lg-field__label">報價編號</span><input class="lg-input" name="quote_no" value="{{.NextQuoteNo}}" required></label>
+    <label class="lg-field"><span class="lg-field__label">報價名稱</span><input class="lg-input" name="title" placeholder="網站建置報價"></label>
+    <label class="lg-field"><span class="lg-field__label">客戶</span><input class="lg-input" name="client_name"></label>
+    <label class="lg-field"><span class="lg-field__label">報價人／公司</span><input class="lg-input" name="issuer_name" value="{{.CompanyName}}"></label>
+    <label class="lg-field"><span class="lg-field__label">幣別</span><select class="lg-select" name="currency"><option>TWD</option><option>USD</option><option>JPY</option><option>EUR</option></select></label>
+    <label class="lg-field"><span class="lg-field__label">折扣方式</span><select class="lg-select" name="discount_type"><option value="amount">固定金額</option><option value="percent">百分比</option></select></label>
+    <label class="lg-field"><span class="lg-field__label">折扣值</span><input class="lg-input" type="number" step="0.01" min="0" name="discount_value" value="0"></label>
+    <label class="lg-field"><span class="lg-field__label">稅率 %</span><input class="lg-input" type="number" step="0.001" min="0" name="tax_rate" value="5"></label>
+    <label class="lg-field mgmt-span"><span class="lg-field__label">備註</span><input class="lg-input" name="note"></label>
+    <button class="lg-btn-primary">新增報價版本</button>
+  </form>
+
+  {{range .Quotes}}
+  <details class="mgmt-record" {{if eq .ID (index $.Quotes 0).ID}}open{{end}}>
+    <summary><strong>{{.QuoteNo}}</strong> · V{{.VersionNo}} · {{if .Title}}{{.Title}}{{else}}未命名報價{{end}} <span>{{money .TotalCents}} {{.Currency}}</span></summary>
+    <div class="mgmt-record__body">
+      <div class="mgmt-print-head"><h2>{{if .Title}}{{.Title}}{{else}}報價單{{end}}</h2><p>{{.QuoteNo}} · {{.ClientName}} · {{.IssuerName}}</p></div>
+      <div class="lg-table-scroll"><table class="lg-table"><thead><tr><th>項目</th><th>數量</th><th>單位</th><th class="right">單價</th><th class="right">小計</th></tr></thead>
+        <tbody>{{range .Items}}<tr><td>{{.Description}}</td><td>{{printf "%.2f" .Quantity}}</td><td>{{.Unit}}</td><td class="right">{{money .UnitPriceCents}}</td><td class="right">{{money .LineTotalCents}}</td></tr>{{else}}<tr><td colspan="5">尚無項目</td></tr>{{end}}</tbody>
+      </table></div>
+      <div class="mgmt-quote-total"><span>未稅 {{money .SubtotalCents}}</span><span>折扣 −{{money .DiscountCents}}</span><span>稅額 {{money .TaxCents}}</span><strong>總計 {{money .TotalCents}} {{.Currency}}</strong></div>
+      {{if .Note}}<p class="mgmt-note">{{.Note}}</p>{{end}}
+      {{if eq .Status "draft"}}<form method="post" action="/projects/{{$.Project.ID}}/quotes/{{.ID}}/items" class="mgmt-inline-form">
+        <input class="lg-input" name="description" placeholder="工作項目" required>
+        <input class="lg-input" type="number" step="0.01" min="0.01" name="quantity" value="1" title="數量">
+        <input class="lg-input" name="unit" value="式" title="單位">
+        <input class="lg-input" type="number" step="0.01" min="0" name="unit_price" placeholder="單價" required>
+        <button class="lg-btn-primary">加項目</button>
+      </form>{{end}}
+      <div class="mgmt-actions"><button type="button" class="lg-btn-link" onclick="window.print()">列印 / PDF</button>
+        <form method="post" action="/projects/{{$.Project.ID}}/quotes/{{.ID}}/revise"><button class="lg-btn-link">建立修訂版</button></form>
+        {{if ne .Status "accepted"}}<form method="post" action="/projects/{{$.Project.ID}}/quotes/{{.ID}}/accept" class="mgmt-accept" onsubmit="return confirm('客戶已接受？系統將建立執行專案並完成預算分配。')">
+          <input class="lg-input" name="project_name" placeholder="執行專案名稱（可留空）">
+          <button class="lg-btn-primary">接受並建立專案</button>
+        </form>{{else}}<span class="mgmt-accepted">✓ 已接受</span>{{end}}
+        <form method="post" action="/projects/{{$.Project.ID}}/quotes/{{.ID}}/delete" onsubmit="return confirm('刪除此報價版本？')"><button class="lg-row-action is-danger">刪除版本</button></form>
+      </div>
+    </div>
+  </details>
+  {{else}}<div class="lg-empty">尚無報價單</div>{{end}}
+</section>
+
+<div class="lg-2col-eq" style="margin-top:18px;">
+<section class="lg-panel" id="hours">
+  <div class="lg-panel__head"><div><h3 class="lg-panel__title">角色與工時</h3><p class="lg-panel__sub">比較預估／實際，並依時薪估算成本</p></div></div>
+  <form method="post" action="/projects/{{.Project.ID}}/roles" class="mgmt-form-grid mgmt-form-grid--compact">
+    <input class="lg-input" name="name" placeholder="角色名稱" required>
+    <input class="lg-input" type="number" step="0.01" min="0" name="hourly_rate" placeholder="時薪">
+    <input class="lg-input" type="number" step="0.01" min="0" name="flat_fee" placeholder="統包金額">
+    <label class="mgmt-check"><input type="checkbox" name="is_self" value="1"> 這是我</label>
+    <button class="lg-btn-primary">新增角色</button>
+  </form>
+  <div class="mgmt-chips">{{range .Roles}}<span class="mgmt-chip">{{.Name}}{{if .IsSelf}} · 我{{end}} · {{money .HourlyRateCents}}/h
+    <form method="post" action="/projects/{{$.Project.ID}}/roles/{{.ID}}/delete" onsubmit="return confirm('刪除角色及其工時？')"><button>×</button></form></span>{{else}}<span class="mgmt-note">尚無角色</span>{{end}}</div>
+  {{if .Roles}}<form method="post" action="/projects/{{.Project.ID}}/time-entries" class="mgmt-form-grid mgmt-form-grid--compact">
+    <select class="lg-select" name="role_id" required>{{range .Roles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>
+    <input class="lg-input" type="date" name="work_date" value="{{.Today}}" required>
+    <input class="lg-input" name="description" placeholder="工作內容">
+    <input class="lg-input" type="number" step="0.25" min="0" name="estimated_hours" placeholder="預估時數">
+    <input class="lg-input" type="number" step="0.25" min="0" name="actual_hours" placeholder="實際時數">
+    <button class="lg-btn-primary">記錄工時</button>
+  </form>{{end}}
+  <div class="lg-table-scroll"><table class="lg-table"><thead><tr><th>日期／角色</th><th>內容</th><th class="right">預估</th><th class="right">實際</th><th></th></tr></thead>
+    <tbody>{{range .Entries}}<tr><td>{{.WorkDate}}<br><small>{{.RoleName}}</small></td><td>{{.Description}}</td><td class="right">{{printf "%.1f" (divf .EstimatedMinutes 60)}}h</td><td class="right">{{printf "%.1f" (divf .ActualMinutes 60)}}h</td><td><form method="post" action="/projects/{{$.Project.ID}}/time-entries/{{.ID}}/delete"><button class="lg-row-action is-danger">×</button></form></td></tr>{{else}}<tr><td colspan="5">尚無工時</td></tr>{{end}}</tbody>
+  </table></div>
+</section>
+
+<section class="lg-panel" id="cashflow">
+  <div class="lg-panel__head"><div><h3 class="lg-panel__title">應收款</h3><p class="lg-panel__sub">收款期別與入帳狀態</p></div></div>
+  <form method="post" action="/projects/{{.Project.ID}}/receivables" class="mgmt-form-grid mgmt-form-grid--compact">
+    <input class="lg-input" name="name" placeholder="期別／項目" required>
+    <input class="lg-input" type="number" step="0.01" min="0" name="amount" placeholder="金額" required>
+    <input class="lg-input" type="date" name="expected_date">
+    <input class="lg-input" name="note" placeholder="備註">
+    <button class="lg-btn-primary">新增應收</button>
+  </form>
+  <div class="mgmt-list">{{range .Receivables}}<div class="mgmt-list__row{{if .Received}} is-done{{end}}"><div><strong>{{.Name}}</strong><small>{{.ExpectedDate}} {{.Note}}</small></div><b>{{money .AmountCents}}</b>
+    <form method="post" action="/projects/{{$.Project.ID}}/receivables/{{.ID}}/toggle"><button class="lg-btn-link">{{if .Received}}取消入帳{{else}}確認入帳{{end}}</button></form>
+    <form method="post" action="/projects/{{$.Project.ID}}/receivables/{{.ID}}/delete"><button class="lg-row-action is-danger">×</button></form></div>{{else}}<div class="lg-empty">尚無應收款</div>{{end}}</div>
+
+  <div class="lg-panel__head" style="margin-top:24px;"><div><h3 class="lg-panel__title">專案成本</h3><p class="lg-panel__sub">多幣別成本及付款狀態</p></div></div>
+  <form method="post" action="/projects/{{.Project.ID}}/costs" class="mgmt-form-grid mgmt-form-grid--compact">
+    <input class="lg-input" name="name" placeholder="成本項目" required>
+    <input class="lg-input" type="number" step="0.01" min="0" name="amount" placeholder="金額" required>
+    <select class="lg-select" name="currency"><option>TWD</option><option>USD</option><option>JPY</option><option>EUR</option></select>
+    <input class="lg-input" type="number" step="0.000001" min="0.000001" name="exchange_rate" value="1" title="換算台幣匯率">
+    <label class="mgmt-check"><input type="checkbox" name="is_labor" value="1"> 人力成本</label>
+    <button class="lg-btn-primary">新增成本</button>
+  </form>
+  <div class="mgmt-list">{{range .Costs}}<div class="mgmt-list__row{{if .Paid}} is-done{{end}}"><div><strong>{{.Name}}</strong><small>{{.Currency}} · 匯率 {{printf "%.4f" .ExchangeRate}}{{if .IsLabor}} · 人力{{end}}</small></div><b>{{money .AmountCents}} {{.Currency}}</b>
+    <form method="post" action="/projects/{{$.Project.ID}}/costs/{{.ID}}/toggle"><button class="lg-btn-link">{{if .Paid}}取消付款{{else}}確認付款{{end}}</button></form>
+    <form method="post" action="/projects/{{$.Project.ID}}/costs/{{.ID}}/delete"><button class="lg-row-action is-danger">×</button></form></div>{{else}}<div class="lg-empty">尚無成本</div>{{end}}</div>
+</section>
+</div>
+{{end}}

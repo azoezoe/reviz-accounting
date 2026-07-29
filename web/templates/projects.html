@@ -60,7 +60,10 @@
     </div>
     {{end}}
     {{if .Note}}<p style="font-family:var(--font-body-cn); font-size:12.5px; color:var(--text-muted); margin:0; line-height:1.6;">{{.Note}}</p>{{end}}
-    <a href="/projects/{{.ID}}/budget" class="lg-btn-link" style="margin-top:12px; color:var(--text-brand);">管理預算 →</a>
+    <div style="display:flex;gap:12px;margin-top:12px;">
+      <a href="/projects/{{.ID}}/management" class="lg-btn-link" style="color:var(--text-brand);">營運管理 →</a>
+      <a href="/projects/{{.ID}}/budget" class="lg-btn-link">預算與帳務 →</a>
+    </div>
   </div>
   {{else}}
   <div class="lg-empty" style="grid-column: 1 / -1;">

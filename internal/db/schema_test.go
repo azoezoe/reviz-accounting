@@ -14,3 +14,16 @@ func TestBudgetTablesFollowForeignKeyTargets(t *testing.T) {
 		}
 	}
 }
+
+func TestManagementTablesFollowProjects(t *testing.T) {
+	projects := strings.Index(schemaSQL, "CREATE TABLE IF NOT EXISTS projects")
+	for _, table := range []string{"project_quotes", "project_roles", "project_time_entries", "project_receivables", "project_cost_items"} {
+		if pos := strings.Index(schemaSQL, "CREATE TABLE IF NOT EXISTS "+table); pos < projects {
+			t.Fatalf("%s must be created after projects", table)
+		}
+	}
+	if strings.Index(schemaSQL, "CREATE TABLE IF NOT EXISTS project_quote_items") <
+		strings.Index(schemaSQL, "CREATE TABLE IF NOT EXISTS project_quotes") {
+		t.Fatal("project_quote_items must be created after project_quotes")
+	}
+}

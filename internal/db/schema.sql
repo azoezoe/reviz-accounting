@@ -34,6 +34,55 @@ CREATE TABLE IF NOT EXISTS project_budgets (
  id BIGSERIAL PRIMARY KEY, project_id BIGINT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
  total_amount_cents BIGINT NOT NULL DEFAULT 0 CHECK (total_amount_cents >= 0), note TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
 );
+CREATE TABLE IF NOT EXISTS project_quotes (
+ id BIGSERIAL PRIMARY KEY, project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ quote_no TEXT NOT NULL UNIQUE, title TEXT NOT NULL DEFAULT '', client_name TEXT NOT NULL DEFAULT '',
+ issuer_name TEXT NOT NULL DEFAULT '', proposal_key TEXT NOT NULL DEFAULT '',
+ version_no INTEGER NOT NULL DEFAULT 1 CHECK (version_no > 0),
+ parent_quote_id BIGINT REFERENCES project_quotes(id) ON DELETE SET NULL, currency TEXT NOT NULL DEFAULT 'TWD',
+ discount_type TEXT NOT NULL DEFAULT 'amount' CHECK (discount_type IN ('amount','percent')),
+ discount_value NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (discount_value >= 0),
+ tax_rate NUMERIC(6,3) NOT NULL DEFAULT 5 CHECK (tax_rate >= 0),
+ note TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','sent','accepted','rejected')),
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
+);
+ALTER TABLE project_quotes ADD COLUMN IF NOT EXISTS proposal_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE project_quotes ADD COLUMN IF NOT EXISTS version_no INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE project_quotes ADD COLUMN IF NOT EXISTS parent_quote_id BIGINT REFERENCES project_quotes(id) ON DELETE SET NULL;
+UPDATE project_quotes SET proposal_key=quote_no WHERE proposal_key='';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quotes_proposal_version ON project_quotes(proposal_key,version_no);
+CREATE TABLE IF NOT EXISTS project_quote_items (
+ id BIGSERIAL PRIMARY KEY, quote_id BIGINT NOT NULL REFERENCES project_quotes(id) ON DELETE CASCADE,
+ description TEXT NOT NULL, quantity NUMERIC(12,2) NOT NULL DEFAULT 1 CHECK (quantity > 0),
+ unit TEXT NOT NULL DEFAULT '式', unit_price_cents BIGINT NOT NULL DEFAULT 0 CHECK (unit_price_cents >= 0),
+ sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS project_roles (
+ id BIGSERIAL PRIMARY KEY, project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ name TEXT NOT NULL, hourly_rate_cents BIGINT NOT NULL DEFAULT 0 CHECK (hourly_rate_cents >= 0),
+ flat_fee_cents BIGINT NOT NULL DEFAULT 0 CHECK (flat_fee_cents >= 0),
+ is_self INTEGER NOT NULL DEFAULT 0 CHECK (is_self IN (0,1)), UNIQUE(project_id,name)
+);
+CREATE TABLE IF NOT EXISTS project_time_entries (
+ id BIGSERIAL PRIMARY KEY, project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ role_id BIGINT NOT NULL REFERENCES project_roles(id) ON DELETE CASCADE, work_date TEXT NOT NULL,
+ description TEXT NOT NULL DEFAULT '', estimated_minutes INTEGER NOT NULL DEFAULT 0 CHECK (estimated_minutes >= 0),
+ actual_minutes INTEGER NOT NULL DEFAULT 0 CHECK (actual_minutes >= 0),
+ created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
+);
+CREATE TABLE IF NOT EXISTS project_receivables (
+ id BIGSERIAL PRIMARY KEY, project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ name TEXT NOT NULL, amount_cents BIGINT NOT NULL DEFAULT 0 CHECK (amount_cents >= 0),
+ expected_date TEXT, received INTEGER NOT NULL DEFAULT 0 CHECK (received IN (0,1)),
+ received_date TEXT, note TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS project_cost_items (
+ id BIGSERIAL PRIMARY KEY, project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ name TEXT NOT NULL, amount_cents BIGINT NOT NULL DEFAULT 0 CHECK (amount_cents >= 0),
+ currency TEXT NOT NULL DEFAULT 'TWD', exchange_rate NUMERIC(14,6) NOT NULL DEFAULT 1 CHECK (exchange_rate > 0),
+ is_labor INTEGER NOT NULL DEFAULT 0 CHECK (is_labor IN (0,1)),
+ paid INTEGER NOT NULL DEFAULT 0 CHECK (paid IN (0,1)), paid_date TEXT, note TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS project_milestones (
  id BIGSERIAL PRIMARY KEY, project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
  name TEXT NOT NULL, planned_income_cents BIGINT NOT NULL DEFAULT 0 CHECK (planned_income_cents >= 0), sort_order INTEGER NOT NULL DEFAULT 0, note TEXT NOT NULL DEFAULT ''
@@ -47,6 +96,12 @@ ALTER TABLE project_budget_allocations ADD COLUMN IF NOT EXISTS project_id BIGIN
 ALTER TABLE project_budget_allocations ALTER COLUMN milestone_id DROP NOT NULL;
 UPDATE project_budget_allocations a SET project_id=m.project_id FROM project_milestones m WHERE a.milestone_id=m.id AND a.project_id IS NULL;
 CREATE INDEX IF NOT EXISTS idx_budget_alloc_project ON project_budget_allocations(project_id);
+CREATE INDEX IF NOT EXISTS idx_quotes_project ON project_quotes(project_id);
+CREATE INDEX IF NOT EXISTS idx_quote_items_quote ON project_quote_items(quote_id);
+CREATE INDEX IF NOT EXISTS idx_project_roles_project ON project_roles(project_id);
+CREATE INDEX IF NOT EXISTS idx_time_entries_project_date ON project_time_entries(project_id,work_date);
+CREATE INDEX IF NOT EXISTS idx_receivables_project ON project_receivables(project_id);
+CREATE INDEX IF NOT EXISTS idx_cost_items_project ON project_cost_items(project_id);
 CREATE TABLE IF NOT EXISTS transaction_budget_allocations (
  id BIGSERIAL PRIMARY KEY, transaction_id BIGINT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
  milestone_id BIGINT REFERENCES project_milestones(id) ON DELETE SET NULL,

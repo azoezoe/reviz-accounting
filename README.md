@@ -10,6 +10,8 @@
 - **交易對象**：客戶、供應商與個人可在記帳時自動建立，並集中維護統編與聯絡資料。
 - **單據附件**：每筆交易可附多份 PDF／JPG／PNG／WebP 單據（單檔最多 20 MB）；原始檔保存於 GCS。
 - **專案**：可在交易掛專案，損益表可依專案篩選。
+- **報價與專案營運**：多版本報價單、折扣／稅額與 PDF 列印；角色、預估／實際工時、應收款及多幣別成本集中管理。
+- **報價轉執行專案**：客戶接受指定報價版本後，一鍵建立執行專案，複製角色、預估工時、應收與成本，並自動完成專案總預算及人力／成本／公司保留款分配。
 - **損益表**：依年度、月份自動產出（收入 → 成本 → 毛利 → 費用 → 淨利）。
 - **儀表板**：四張總覽卡 + 每月收支長條圖 + YTD 淨利折線圖 + 前 5 大費用/收入分類。
 - **CSV 匯出 / 匯入**：以名稱對應分類、帳戶、專案。
@@ -54,6 +56,10 @@ export DATABASE_URL='postgres://USER:PASSWORD@HOST/DB?sslmode=require'
 
 Session 用 cookie + DB 存（30 天）。停用使用者會自動把該人的 session 全清掉。改密碼也會踢出其他裝置。
 
+新增的專案營運功能沿用相同權限：`viewer` 可讀取報價版本、工時、應收與成本；`accountant`、`owner` 可新增、修訂與接受報價、記錄工時及更新收付款狀態。MCP OAuth token 也綁定同一使用者與角色，所有 MCP 呼叫會以實際工具名稱寫入 `mcp_audit_log`。
+
+MCP 同步提供 `get_project_management`、報價建立／修訂／接受、報價明細、角色工時、應收款與成本等工具。`accept_project_quote` 和 Web 操作使用相同的原子化專案建立與預算分配流程。
+
 ## 編譯
 
 ```sh
@@ -71,6 +77,9 @@ go build -o reviz-accounting
 | `accounts` | 帳戶（資產 / 負債） |
 | `categories` | 分類（收入/成本/費用/股東權益/其他） |
 | `projects` | 專案 |
+| `project_quotes` / `project_quote_items` | 報價版本歷程與明細；舊版鎖定保留 |
+| `project_roles` / `project_time_entries` | 專案角色、時薪／統包、預估與實際工時 |
+| `project_receivables` / `project_cost_items` | 收款期別、入帳狀態與多幣別專案成本 |
 | `counterparties` | 交易對象：名稱、統編、聯絡與銀行資料 |
 | `transactions` | 交易：日期、交易對象、敘述、分類、金額（正整數 cents）、from_account、to_account、project、備註 |
 | `users` | 使用者：username、bcrypt password_hash、role、active、last_login_at |
