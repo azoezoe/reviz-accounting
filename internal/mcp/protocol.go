@@ -54,7 +54,7 @@ func (s *Server) MCP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		outcome = "error"
 	}
-	_, _ = s.DB.Exec(`INSERT INTO mcp_audit_log(user_id,client_id,tool_name,outcome) VALUES(?,?,?,?)`, u.ID, client, req.Method, outcome)
+	_, _ = s.DB.Exec(`INSERT INTO mcp_audit_log(user_id,client_id,tool_name,outcome) VALUES(?,?,?,?)`, u.ID, client, auditToolName(req.Method, req.Params), outcome)
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32602, "message": err.Error()}})
@@ -111,6 +111,8 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 		return s.projectBudget(numID(a, "project_id"))
 	case "list_project_transactions":
 		return s.projectTransactions(numID(a, "project_id"))
+	case "get_project_management":
+		return s.projectManagement(numID(a, "project_id"))
 	case "list_transactions":
 		f := models.TxFilter{YearMonth: str(a, "year_month"), SearchText: str(a, "search"), Limit: asInt(num(a, "limit"))}
 		if f.Limit == 0 {
@@ -159,6 +161,13 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 		default:
 			return s.createBudgetPosting(a)
 		}
+	case "create_project_quote", "create_quote_item", "revise_project_quote", "accept_project_quote",
+		"create_project_role", "create_time_entry", "create_project_receivable",
+		"toggle_project_receivable", "create_project_cost", "toggle_project_cost":
+		if !u.AtLeast(auth.RoleAccountant) {
+			return nil, fmtErr("權限不足")
+		}
+		return s.projectManagementWrite(name, a)
 	}
 	return nil, fmtErr("unknown tool")
 }
@@ -174,6 +183,17 @@ func tools() []map[string]any {
 		{"name": "update_project", "description": "更新既有專案。傳 project_id；可更新 name、start_date、end_date、note，至少提供一個要更新的欄位。", "inputSchema": req("project_id")},
 		{"name": "get_project_budget", "description": "取得專案的總預算、收入進度、預定分配及已連結日記帳交易與分攤狀態。傳 project_id。", "inputSchema": req("project_id")},
 		{"name": "list_project_transactions", "description": "列出已連結到專案的日記帳交易，並標示每筆是否已有預算分攤。傳 project_id。", "inputSchema": req("project_id")},
+		{"name": "get_project_management", "description": "取得專案報價版本、角色、預估/實際工時、應收款與成本。viewer 以上可讀取；傳 project_id。", "inputSchema": req("project_id")},
+		{"name": "create_project_quote", "description": "建立提案報價 V1。傳 project_id；可選 quote_no、title、client_name、issuer_name、currency、discount_type(amount|percent)、discount_value、tax_rate、note。accountant 以上。", "inputSchema": req("project_id")},
+		{"name": "create_quote_item", "description": "在 draft 報價加入明細。傳 project_id、quote_id、description、quantity、unit、unit_price_cents。accountant 以上。", "inputSchema": req("project_id", "quote_id", "description", "unit_price_cents")},
+		{"name": "revise_project_quote", "description": "複製指定報價與全部明細建立下一修訂版；舊 draft 會鎖定為 sent。傳 project_id、quote_id。accountant 以上。", "inputSchema": req("project_id", "quote_id")},
+		{"name": "accept_project_quote", "description": "接受指定報價版本並原子化建立執行專案、複製角色/預估工時/應收/成本及完成預算分配。傳 project_id、quote_id；可選 project_name。accountant 以上。", "inputSchema": req("project_id", "quote_id")},
+		{"name": "create_project_role", "description": "新增專案角色。金額為分；傳 project_id、name，可選 hourly_rate_cents、flat_fee_cents、is_self。accountant 以上。", "inputSchema": req("project_id", "name")},
+		{"name": "create_time_entry", "description": "新增角色工時。傳 project_id、role_id、work_date、estimated_minutes、actual_minutes，可選 description。accountant 以上。", "inputSchema": req("project_id", "role_id", "work_date")},
+		{"name": "create_project_receivable", "description": "新增專案應收款。金額為分；傳 project_id、name、amount_cents，可選 expected_date、note。accountant 以上。", "inputSchema": req("project_id", "name", "amount_cents")},
+		{"name": "toggle_project_receivable", "description": "切換應收款是否已入帳。傳 project_id、receivable_id。accountant 以上。", "inputSchema": req("project_id", "receivable_id")},
+		{"name": "create_project_cost", "description": "新增多幣別專案成本。金額為分；傳 project_id、name、amount_cents，可選 currency、exchange_rate、is_labor、note。accountant 以上。", "inputSchema": req("project_id", "name", "amount_cents")},
+		{"name": "toggle_project_cost", "description": "切換專案成本是否已付款。傳 project_id、cost_id。accountant 以上。", "inputSchema": req("project_id", "cost_id")},
 		{"name": "list_transactions", "description": "查詢交易，可帶 year_month、search、limit", "inputSchema": obj},
 		{"name": "create_transaction", "description": "新增交易；amount 是分，傳 date、description、amount、from_account_id/to_account_id、category_id、counterparty、note。", "inputSchema": req("date", "description", "amount")},
 		{"name": "update_transaction", "description": "更新既有交易；傳 id 及 create_transaction 欄位。", "inputSchema": req("id", "date", "description", "amount")},
@@ -182,6 +202,19 @@ func tools() []map[string]any {
 		{"name": "create_budget_allocation", "description": "建立專案預定分配；金額為分。傳 project_id、recipient_kind(labor_compensation|company_reserve|cost_expense)、recipient_name、planned_amount。", "inputSchema": req("project_id", "recipient_kind", "recipient_name", "planned_amount")},
 		{"name": "create_budget_posting", "description": "把既有專案支出交易對應到預算項目。傳 transaction_id、allocation_kind(partner_payout|cost_expense)、budget_allocation_id、amount(分)。", "inputSchema": req("transaction_id", "allocation_kind", "budget_allocation_id", "amount")},
 	}
+}
+
+func auditToolName(method string, raw json.RawMessage) string {
+	if method != "tools/call" {
+		return method
+	}
+	var p struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(raw, &p) == nil && p.Name != "" {
+		return p.Name
+	}
+	return method
 }
 
 func (s *Server) uploadReceipt(u *auth.User, a map[string]any) (any, error) {
