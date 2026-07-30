@@ -84,6 +84,18 @@ type Attachment struct {
 	UploadedByName   string
 }
 
+type QuoteAttachment struct {
+	ID               int64
+	QuoteID          int64
+	StorageKey       string
+	OriginalFilename string
+	ContentType      string
+	SizeBytes        int64
+	UploadedByID     sql.NullInt64
+	CreatedAt        string
+	UploadedByName   string
+}
+
 // Type reports the inferred kind of transaction.
 func (t *Transaction) Type() string {
 	switch {

@@ -1,4 +1,10 @@
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT INTO settings(key,value) VALUES
+ ('company_name','睿藝有限公司 ReViz'),
+ ('company_contact','簡信昌'),
+ ('company_email','hcchien@gmail.com'),
+ ('company_tax_id','62228678')
+ON CONFLICT(key) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS accounts (
  id BIGSERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE, kind TEXT NOT NULL CHECK (kind IN ('asset','liability')),
@@ -163,6 +169,12 @@ CREATE TABLE IF NOT EXISTS transaction_attachments (
  original_filename TEXT NOT NULL, content_type TEXT NOT NULL, size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
  uploaded_by_id BIGINT REFERENCES users(id) ON DELETE SET NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
 );
+CREATE TABLE IF NOT EXISTS quote_attachments (
+ id BIGSERIAL PRIMARY KEY, quote_id BIGINT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE, storage_key TEXT NOT NULL UNIQUE,
+ original_filename TEXT NOT NULL, content_type TEXT NOT NULL DEFAULT 'application/pdf',
+ size_bytes BIGINT NOT NULL CHECK (size_bytes >= 0),
+ uploaded_by_id BIGINT REFERENCES users(id) ON DELETE SET NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
+);
 CREATE TABLE IF NOT EXISTS mcp_oauth_clients (
  id TEXT PRIMARY KEY, redirect_uris TEXT NOT NULL, client_name TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
 );
@@ -191,4 +203,5 @@ CREATE INDEX IF NOT EXISTS idx_tx_counterparty ON transactions(counterparty_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_attachments_transaction ON transaction_attachments(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_quote_attachments_quote ON quote_attachments(quote_id);
 CREATE INDEX IF NOT EXISTS idx_mcp_tokens_user ON mcp_access_tokens(user_id);

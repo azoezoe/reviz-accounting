@@ -50,7 +50,13 @@ func SeedIfEmpty(d *sql.DB) error {
 		return err
 	}
 	defer tx.Rollback()
-	for k, v := range map[string]string{"company_name": "我的公司", "fiscal_year": "2026"} {
+	for k, v := range map[string]string{
+		"company_name":    "睿藝有限公司 ReViz",
+		"company_contact": "簡信昌",
+		"company_email":   "hcchien@gmail.com",
+		"company_tax_id":  "62228678",
+		"fiscal_year":     "2026",
+	} {
 		if _, err := tx.Exec(`INSERT INTO settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, k, v); err != nil {
 			return err
 		}
