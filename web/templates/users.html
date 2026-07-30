@@ -40,11 +40,11 @@
       </div>
       <div>
         <p class="lg-user-name">
-          {{.Username}}
+          {{if .FullName}}{{.FullName}}{{else}}{{.Username}}{{end}}
           {{if and $cur (eq $cur.ID .ID)}}<span class="lg-user-email" style="display:inline; margin-left:6px; color:var(--text-faint);">(你)</span>{{end}}
         </p>
         <p class="lg-user-email">
-          {{if .Active}}啟用{{else}}停用{{end}} · 最後登入 {{.LastLoginAt.String}}
+          @{{.Username}} · {{if .Active}}啟用{{else}}停用{{end}} · 最後登入 {{.LastLoginAt.String}}
         </p>
       </div>
 
@@ -70,6 +70,15 @@
           </form>
         {{end}}
       </span>
+
+      <details style="position:relative;">
+        <summary class="lg-btn-link" style="cursor:pointer; color:var(--text-brand);">編輯姓名</summary>
+        <form method="post" action="/users/{{.ID}}" style="position:absolute; right:0; z-index:2; width:260px; padding:14px; margin-top:8px; border:1px solid var(--border-subtle); border-radius:var(--r-md); background:var(--bg-base); box-shadow:var(--shadow-md); display:grid; gap:10px;">
+          <label class="lg-field__label">姓名</label>
+          <input class="lg-input" name="full_name" value="{{.FullName}}" placeholder="聯絡人顯示名稱" required>
+          <button class="lg-btn-primary" type="submit">儲存姓名</button>
+        </form>
+      </details>
 
       <details style="position:relative;">
         <summary class="lg-btn-link" style="cursor:pointer; color:var(--text-brand);">重設密碼</summary>
@@ -99,7 +108,11 @@
       <p class="lg-panel__sub">直接建立帳號（不發送邀請信）</p>
     </div>
   </div>
-  <form method="post" action="/users" style="display:grid; grid-template-columns: 1fr 1fr 200px 100px; gap:12px; align-items:end;">
+  <form method="post" action="/users" style="display:grid; grid-template-columns: 1fr 1fr 1fr 200px 100px; gap:12px; align-items:end;">
+    <div class="lg-field">
+      <label class="lg-field__label">姓名</label>
+      <input class="lg-input" type="text" name="full_name" required>
+    </div>
     <div class="lg-field">
       <label class="lg-field__label">帳號</label>
       <input class="lg-input" type="text" name="username" autocomplete="off" required>

@@ -34,7 +34,7 @@ func (s *Server) userCreate(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 	role := r.FormValue("role")
-	if _, err := auth.CreateUser(s.DB, username, password, role); err != nil {
+	if _, err := auth.CreateUserWithName(s.DB, username, password, role, r.FormValue("full_name")); err != nil {
 		s.userError(w, r, err)
 		return
 	}
@@ -48,6 +48,12 @@ func (s *Server) userUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	current := auth.FromContext(r.Context())
+	if _, ok := r.Form["full_name"]; ok {
+		if err := auth.UpdateUserFullName(s.DB, id, r.FormValue("full_name")); err != nil {
+			s.userError(w, r, err)
+			return
+		}
+	}
 	if role := r.FormValue("role"); role != "" {
 		if err := s.guardLastOwner(id, role, true); err != nil {
 			s.userError(w, r, err)

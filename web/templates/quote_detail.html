@@ -79,6 +79,16 @@
       <input class="lg-input" type="date" name="valid_until" value="{{.Quote.ValidUntil}}">
     </label>
 
+    <label class="lg-field">
+      <span class="lg-field__label">報價聯絡人（系統使用者）</span>
+      <select class="lg-select" name="contact_user_id">
+        <option value="">— 手動填寫 —</option>
+        {{range .Contacts}}
+        <option value="{{.ID}}" {{if eq .ID $.Quote.ContactUserID}}selected{{end}}>{{if .FullName}}{{.FullName}}{{else}}{{.Username}}{{end}}</option>
+        {{end}}
+      </select>
+    </label>
+
     <label class="lg-field quote-company-field">
       <span class="lg-field__label">公司名稱</span>
       <input id="issuer-name" class="lg-input" name="issuer_name" value="{{.Quote.IssuerName}}">
