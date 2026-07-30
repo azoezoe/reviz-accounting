@@ -497,6 +497,46 @@ func DeleteAttachment(d *sql.DB, id int64) error {
 	return err
 }
 
+// ----- Quote PDF attachments -----
+
+func ListQuoteAttachments(d *sql.DB, quoteID int64) ([]QuoteAttachment, error) {
+	rows, err := d.Query(`SELECT a.id,a.quote_id,a.storage_key,a.original_filename,a.content_type,a.size_bytes,a.uploaded_by_id,a.created_at,COALESCE(u.username,'') FROM quote_attachments a LEFT JOIN users u ON u.id=a.uploaded_by_id WHERE a.quote_id=? ORDER BY a.id`, quoteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []QuoteAttachment
+	for rows.Next() {
+		var a QuoteAttachment
+		if err := rows.Scan(&a.ID, &a.QuoteID, &a.StorageKey, &a.OriginalFilename, &a.ContentType, &a.SizeBytes, &a.UploadedByID, &a.CreatedAt, &a.UploadedByName); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func GetQuoteAttachment(d *sql.DB, id int64) (*QuoteAttachment, error) {
+	var a QuoteAttachment
+	err := d.QueryRow(`SELECT id,quote_id,storage_key,original_filename,content_type,size_bytes,uploaded_by_id,created_at FROM quote_attachments WHERE id=?`, id).
+		Scan(&a.ID, &a.QuoteID, &a.StorageKey, &a.OriginalFilename, &a.ContentType, &a.SizeBytes, &a.UploadedByID, &a.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+func CreateQuoteAttachment(d *sql.DB, a *QuoteAttachment) (int64, error) {
+	var id int64
+	err := d.QueryRow(`INSERT INTO quote_attachments(quote_id,storage_key,original_filename,content_type,size_bytes,uploaded_by_id) VALUES(?,?,?,?,?,?) RETURNING id`, a.QuoteID, a.StorageKey, a.OriginalFilename, a.ContentType, a.SizeBytes, a.UploadedByID).Scan(&id)
+	return id, err
+}
+
+func DeleteQuoteAttachment(d *sql.DB, id int64) error {
+	_, err := d.Exec(`DELETE FROM quote_attachments WHERE id=?`, id)
+	return err
+}
+
 // ----- Helpers -----
 
 func boolInt(b bool) int {

@@ -27,7 +27,7 @@ func (s *Server) settingsSave(w http.ResponseWriter, r *http.Request) {
 		s.error500(w, err)
 		return
 	}
-	for _, k := range []string{"company_name", "fiscal_year"} {
+	for _, k := range []string{"company_name", "company_contact", "company_email", "company_tax_id", "fiscal_year"} {
 		if v := r.FormValue(k); v != "" {
 			if err := models.SetSetting(s.DB, k, v); err != nil {
 				s.error500(w, err)

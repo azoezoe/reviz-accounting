@@ -32,6 +32,18 @@
             <input class="lg-input" type="text" name="company_name" value="{{index .Settings "company_name"}}">
           </div>
           <div class="lg-field">
+            <label class="lg-field__label">報價聯絡人</label>
+            <input class="lg-input" type="text" name="company_contact" value="{{index .Settings "company_contact"}}">
+          </div>
+          <div class="lg-field">
+            <label class="lg-field__label">公司 Email</label>
+            <input class="lg-input" type="email" name="company_email" value="{{index .Settings "company_email"}}">
+          </div>
+          <div class="lg-field">
+            <label class="lg-field__label">統一編號</label>
+            <input class="lg-input" type="text" inputmode="numeric" name="company_tax_id" value="{{index .Settings "company_tax_id"}}">
+          </div>
+          <div class="lg-field">
             <label class="lg-field__label">會計年度</label>
             <input class="lg-input" type="number" name="fiscal_year" value="{{index .Settings "fiscal_year"}}" min="1900" max="2999">
           </div>

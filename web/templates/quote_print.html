@@ -1,1 +1,494 @@
-{{define "content"}}<style>@page{size:A4;margin:12mm}.quote-doc{max-width:186mm;margin:auto;color:#24313d;font-family:"Noto Serif TC",sans-serif}.quote-bar{height:8px;background:linear-gradient(90deg,#167c70,#4dbca9,#d98a3d);margin:-12mm -12mm 10mm}.quote-head{display:flex;justify-content:space-between;border-bottom:1px dashed #b9cecc;padding-bottom:7mm}.quote-logo{display:block;width:150px;height:auto}.quote-kind{font-size:15px;font-weight:bold;color:#07675d;margin-top:6px}.quote-head h1{font:700 26px Arial,sans-serif;margin:10px 0 0}.quote-issuer{text-align:right;color:#596b7a;line-height:1.45;white-space:pre-wrap}.quote-issuer strong{color:#354657}.quote-meta{display:grid;grid-template-columns:1fr 1fr;gap:5mm;margin:7mm 0}.quote-box{background:#f7fbfb;border:1px solid #d5e5e3;border-radius:4mm;padding:4mm}.quote-box b{display:block;font-size:11px;color:#637786}.quote-content{border:1px solid #d5e5e3;border-radius:4mm;padding:5mm;white-space:pre-wrap;line-height:1.7;min-height:20mm}.quote-content h2{font-size:15px;color:#087a70;margin:0 0 3mm}.quote-table{width:100%;border-collapse:collapse;margin-top:5mm;font-size:11px}.quote-table th{background:#eaf5f3;text-align:left;padding:3mm}.quote-table td{border-bottom:1px solid #d5e5e3;padding:3mm;vertical-align:top}.quote-table .right{text-align:right}.quote-total{text-align:right;margin:5mm 0;font-family:Arial,sans-serif}.quote-total strong{display:inline-block;background:#e8f7f4;color:#08685f;font-size:20px;padding:3mm 4mm;border-radius:3mm}.quote-sign{margin-top:8mm;border:1px dashed #b9cecc;border-radius:4mm;height:33mm;padding:4mm;color:#637786}.quote-footer{margin-top:6mm;color:#637786;font-size:10px}@media print{body{background:white}.quote-doc{max-width:none}}</style><div class="quote-doc"><div class="quote-bar"></div><header class="quote-head"><div><img class="quote-logo" src="/static/images/reviz-logo.png" alt="ReViz logo"><div class="quote-kind">報價單</div><h1>QUOTATION</h1></div><div class="quote-issuer">{{if eq .Quote.QuoteType "personal"}}<strong>{{.Quote.PersonalName}}</strong><br>{{.Quote.PersonalContact}}{{else}}<strong>{{.Quote.IssuerName}}</strong><br>{{.Quote.IssuerContact}}{{end}}</div></header><div class="quote-meta"><div class="quote-box"><b>客戶</b>{{.Quote.ClientName}}</div><div class="quote-box"><b>專案</b>{{.Quote.Title}}</div></div><section class="quote-content"><h2>專案內容</h2>{{.Quote.ProjectContent}}</section><p><strong>幣別：{{.Quote.Currency}}</strong></p><table class="quote-table"><thead><tr><th>#</th><th>項目</th>{{if .Quote.ShowUnitPrice}}<th class="right">數量</th><th class="right">單價</th>{{end}}<th class="right">金額</th></tr></thead><tbody>{{range .Quote.Items}}<tr><td>{{.ID}}</td><td>{{.Description}}{{if .Detail}}<br><small>{{.Detail}}</small>{{end}}</td>{{if $.Quote.ShowUnitPrice}}<td class="right">{{printf "%.2f" .Quantity}} {{.Unit}}</td><td class="right">{{money .UnitPriceCents}}</td>{{end}}<td class="right">{{money .LineTotalCents}}</td></tr>{{end}}</tbody></table><div class="quote-total">小計：{{money .Quote.SubtotalCents}}<br>{{if ne .Quote.DiscountCents 0}}折扣：−{{money .Quote.DiscountCents}}<br>{{end}}{{if ne .Quote.TaxCents 0}}稅額：{{money .Quote.TaxCents}}<br>{{end}}<strong>Total: {{money .Quote.TotalCents}}</strong></div>{{if .Quote.Note}}<p><strong>備註：</strong>{{.Quote.Note}}</p>{{end}}<div class="quote-sign">簽核</div><footer class="quote-footer">{{.Quote.QuoteNo}} · V{{.Quote.VersionNo}}</footer></div><script>addEventListener('load',()=>setTimeout(()=>print(),200))</script>{{end}}{{template "base" .}}
+{{define "content"}}
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body {
+    width: 210mm;
+    margin: 0;
+    background: #fff;
+    color: #172027;
+    font-family: Arial, "PingFang TC", "Noto Sans TC", sans-serif;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .quote-page {
+    position: relative;
+    width: 210mm;
+    min-height: 297mm;
+    padding: 10mm 4mm 4mm;
+    overflow: hidden;
+    background: #fff;
+  }
+  .invoice-ribbon {
+    position: absolute;
+    inset: 0 0 auto;
+    height: 2mm;
+    background: linear-gradient(90deg, #0e6f66, #2bb7a8, #d98a42);
+  }
+  .invoice-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 8mm;
+    padding: 0 0 4mm;
+    border-bottom: 1px dashed #d9e3e1;
+  }
+  .invoice-brand {
+    display: grid;
+    gap: 1mm;
+    align-content: start;
+  }
+  .invoice-logo {
+    display: block;
+    width: 150px;
+    height: auto;
+    margin-bottom: 1mm;
+  }
+  .inv-title-zh {
+    margin: 0;
+    color: #0f5f57;
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: .08em;
+  }
+  .inv-title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .invoice-issuer {
+    max-width: 75mm;
+    color: #60707a;
+    font-size: 12px;
+    line-height: 1.35;
+    text-align: right;
+  }
+  .invoice-issuer p { margin: 2px 0 0; }
+  .invoice-issuer .invoice-date { margin-top: 0; }
+  .invoice-issuer strong {
+    color: #394a54;
+    font-size: 12px;
+  }
+  .invoice-meta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2mm;
+    margin: 4mm 0;
+  }
+  .invoice-meta-grid p {
+    margin: 0;
+    padding: 2.5mm 3mm;
+    border: 1px solid #e0ebea;
+    border-radius: 3mm;
+    background: #f9fcfc;
+    font-size: 13px;
+  }
+  .invoice-meta-grid span {
+    display: block;
+    margin-bottom: 1mm;
+    color: #5f707a;
+    font-size: 10px;
+  }
+  .scope-box {
+    padding: 3mm 3.5mm;
+    border: 1px solid #dce8e6;
+    border-radius: 4mm;
+    background: linear-gradient(145deg, #fff, #f6fbfa);
+  }
+  .scope-title {
+    margin: 0;
+    color: #11786e;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: .08em;
+  }
+  .scope-body,
+  .scope-terms {
+    margin: 2.5mm 0 0;
+    color: #3f4f59;
+    font-size: 12.5px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+  }
+  .scope-terms { margin-top: 3mm; }
+  .scope-valid {
+    margin: 1mm 0 0;
+    color: #3f4f59;
+    font-size: 12.5px;
+  }
+  .invoice-currency {
+    margin: 4mm 0 0;
+    color: #465760;
+    font-size: 12px;
+  }
+  .invoice-table {
+    width: 100%;
+    margin-top: 2.5mm;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 12px;
+  }
+  .invoice-table th,
+  .invoice-table td {
+    padding: 2.5mm 2mm;
+    border-bottom: 1px solid #e0e9e7;
+    text-align: left;
+    vertical-align: middle;
+  }
+  .invoice-table th {
+    background: #eff8f7;
+    font-weight: 700;
+  }
+  .invoice-table .col-index { width: 6%; }
+  .invoice-table .col-item { width: 22%; }
+  .invoice-table .col-description { width: 54%; }
+  .invoice-table .col-amount { width: 18%; }
+  .invoice-table .right {
+    text-align: right;
+    white-space: nowrap;
+  }
+  .invoice-totals {
+    display: grid;
+    justify-items: end;
+    gap: 1mm;
+    margin-top: 4mm;
+    font-size: 12px;
+  }
+  .invoice-totals p { margin: 0; }
+  .invoice-totals .final {
+    padding: 1mm 2mm;
+    border-radius: 3mm;
+    background: #e9f8f5;
+    color: #0c5f57;
+    font-size: 18px;
+    font-weight: 900;
+  }
+  .invoice-note {
+    margin: 3mm 0 0;
+    color: #60707a;
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+  }
+  .sign-block {
+    display: flex;
+    min-height: 34mm;
+    margin-top: 4mm;
+    padding: 3mm;
+    flex-direction: column;
+    justify-content: space-between;
+    border: 1px dashed #cad6d4;
+    border-radius: 4mm;
+  }
+  .sign-label {
+    margin: 0;
+    color: #5f707a;
+    font-size: 12px;
+  }
+  .sign-line {
+    width: 62%;
+    border-bottom: 1px solid #8da2ad;
+  }
+  .spec-page {
+    page-break-before: always;
+    break-before: page;
+    padding: 30mm 25mm;
+    overflow: visible;
+  }
+  .spec-table {
+    width: 160mm;
+    border-collapse: collapse;
+    table-layout: fixed;
+    color: #111;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+  .spec-table th,
+  .spec-table td {
+    padding: 1.5mm 1mm;
+    border: 1px solid #111;
+    text-align: left;
+    vertical-align: top;
+    white-space: pre-wrap;
+  }
+  .spec-table th {
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+  }
+  .spec-table .spec-feature { width: 16%; }
+  .spec-table .spec-use-case { width: 23%; }
+  .spec-table .spec-capability { width: 16%; }
+  .spec-table .spec-steps { width: 45%; padding: 0; }
+  .spec-step {
+    min-height: 8mm;
+    padding: 1.5mm 1mm;
+    border-bottom: 1px solid #111;
+  }
+  .spec-step:last-child { border-bottom: 0; }
+  .export-toolbar {
+    position: sticky;
+    z-index: 10;
+    top: 0;
+    display: flex;
+    width: 210mm;
+    margin: 0 auto;
+    padding: 12px 16px;
+    gap: 10px;
+    align-items: center;
+    background: rgba(23, 32, 39, .94);
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, .2);
+  }
+  .export-toolbar button {
+    padding: 9px 15px;
+    border: 1px solid rgba(255, 255, 255, .3);
+    border-radius: 8px;
+    background: transparent;
+    color: #fff;
+    cursor: pointer;
+    font: inherit;
+  }
+  .export-toolbar .primary {
+    border-color: #2bb7a8;
+    background: #168f83;
+    font-weight: 700;
+  }
+  .export-toolbar button:disabled { cursor: wait; opacity: .65; }
+  .export-status { margin-left: auto; font-size: 13px; }
+  @media screen {
+    html, body { width: auto; min-width: 210mm; }
+    body { background: #d9dddf; }
+    .quote-page {
+      margin: 8mm auto;
+      box-shadow: 0 2mm 8mm rgba(32, 45, 52, .15);
+    }
+  }
+  @media print {
+    body { background: #fff; }
+    .export-toolbar { display: none; }
+    .quote-page {
+      margin: 0;
+      box-shadow: none;
+    }
+  }
+</style>
+
+<div class="export-toolbar" data-html2canvas-ignore="true">
+  <button id="download-pdf" class="primary" type="button">下載 PDF（含附件）</button>
+  <button id="print-pdf" type="button">直接列印</button>
+  <span id="export-status" class="export-status">{{len .Attachments}} 份附件</span>
+</div>
+
+<main class="quote-page">
+  <div class="invoice-ribbon"></div>
+  <header class="invoice-top">
+    <div class="invoice-brand">
+      <img class="invoice-logo" src="/static/images/reviz-logo.png" alt="ReViz">
+      {{if ne .Quote.QuoteLanguage "en"}}<p class="inv-title-zh">報價單</p>{{end}}
+      <p class="inv-title">QUOTATION</p>
+    </div>
+    <div class="invoice-issuer">
+      <p class="invoice-date">Date: {{.Quote.QuoteDate}}</p>
+      {{if eq .Quote.QuoteType "personal"}}
+        <p><strong>{{.Quote.PersonalName}}</strong></p>
+        <p style="white-space:pre-wrap">{{.Quote.PersonalContact}}</p>
+      {{else}}
+        <p><strong>{{.Quote.IssuerName}}</strong></p>
+        <p>{{.Quote.IssuerContact}}</p>
+        <p>{{.Quote.IssuerEmail}}</p>
+        {{if .Quote.IssuerTaxID}}<p>統一編號：{{.Quote.IssuerTaxID}}</p>{{end}}
+      {{end}}
+    </div>
+  </header>
+
+  <section class="invoice-meta-grid">
+    <p><span>{{if eq .Quote.QuoteLanguage "en"}}Client{{else}}客戶{{end}}</span>{{.Quote.ClientName}}</p>
+    <p><span>{{if eq .Quote.QuoteLanguage "en"}}Project{{else}}專案{{end}}</span>{{.Quote.Title}}</p>
+  </section>
+
+  <section class="scope-box">
+    <p class="scope-title">{{if eq .Quote.QuoteLanguage "en"}}PROJECT SCOPE{{else}}專案內容{{end}}</p>
+    <p class="scope-body">{{.Quote.ProjectContent}}</p>
+    {{if .Quote.Terms}}<p class="scope-terms">{{.Quote.Terms}}</p>{{end}}
+    {{if .Quote.ValidUntil}}<p class="scope-valid">{{if eq .Quote.QuoteLanguage "en"}}Valid until{{else}}報價有效日期{{end}}：{{dateSlash .Quote.ValidUntil}}</p>{{end}}
+  </section>
+
+  <p class="invoice-currency"><strong>{{if eq .Quote.QuoteLanguage "en"}}Currency{{else}}幣別{{end}}:</strong> {{.Quote.Currency}}</p>
+
+  <table class="invoice-table">
+    <thead>
+      <tr>
+        <th class="col-index">#</th>
+        <th class="col-item">{{if eq .Quote.QuoteLanguage "en"}}Item{{else}}項目{{end}}</th>
+        <th class="col-description">{{if eq .Quote.QuoteLanguage "en"}}Description{{else}}說明{{end}}</th>
+        {{if .Quote.ShowUnitPrice}}
+        <th class="right">{{if eq .Quote.QuoteLanguage "en"}}Quantity{{else}}數量{{end}}</th>
+        <th class="right">{{if eq .Quote.QuoteLanguage "en"}}Unit Price{{else}}單價{{end}}</th>
+        {{end}}
+        <th class="col-amount right">{{if eq .Quote.QuoteLanguage "en"}}Amount{{else}}金額{{end}}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range $index, $item := .Quote.Items}}
+      <tr>
+        <td>{{quoteItemNo $index}}</td>
+        <td>{{$item.Description}}</td>
+        <td>{{$item.Detail}}</td>
+        {{if $.Quote.ShowUnitPrice}}
+        <td class="right">{{printf "%.2f" $item.Quantity}} {{$item.Unit}}</td>
+        <td class="right">{{currencySymbol $.Quote.Currency}}{{quoteMoney $item.UnitPriceCents}}</td>
+        {{end}}
+        <td class="right">{{currencySymbol $.Quote.Currency}}{{quoteMoney $item.LineTotalCents}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+
+  <div class="invoice-totals">
+    <p>Subtotal: {{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.SubtotalCents}}</p>
+    {{if ne .Quote.DiscountCents 0}}<p>Discount: -{{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.DiscountCents}}</p>{{end}}
+    {{if ne .Quote.TaxCents 0}}<p>Tax: {{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.TaxCents}}</p>{{end}}
+    <p class="final">Total: {{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.TotalCents}}</p>
+  </div>
+
+  {{if .Quote.Note}}<p class="invoice-note"><strong>{{if eq .Quote.QuoteLanguage "en"}}Notes{{else}}備註{{end}}：</strong>{{.Quote.Note}}</p>{{end}}
+  <div class="sign-block">
+    <p class="sign-label">{{.Quote.SignatureLabel}}</p>
+    <div class="sign-line"></div>
+  </div>
+</main>
+
+{{if .Quote.Specifications}}
+<section class="quote-page spec-page">
+  <table class="spec-table">
+    <thead>
+      <tr>
+        <th class="spec-feature">Feature</th>
+        <th class="spec-use-case">使用情境</th>
+        <th class="spec-capability">對應功能</th>
+        <th class="spec-steps">實作步驟</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range .Quote.Specifications}}
+      <tr>
+        <td>{{.Feature}}</td>
+        <td>{{.UseCase}}</td>
+        <td>{{.Capability}}</td>
+        <td class="spec-steps">{{range lines .ImplementationSteps}}<div class="spec-step">{{.}}</div>{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</section>
+{{end}}
+
+<script src="/static/vendor/html2canvas/html2canvas.min.js"></script>
+<script src="/static/vendor/pdf-lib/pdf-lib.min.js"></script>
+<script>
+(() => {
+  const A4_WIDTH = 595.28;
+  const A4_HEIGHT = 841.89;
+  const attachmentURLs = [
+    {{range .Attachments}}"/quote-attachments/{{.ID}}",{{end}}
+  ];
+  const outputFilename = "{{.Quote.QuoteNo}}.pdf";
+  const downloadButton = document.getElementById("download-pdf");
+  const printButton = document.getElementById("print-pdf");
+  const status = document.getElementById("export-status");
+
+  const waitForAssets = async () => {
+    if (document.fonts && document.fonts.ready) await document.fonts.ready;
+    await Promise.all(Array.from(document.images).map((img) => {
+      if (img.complete) return img.decode ? img.decode().catch(() => {}) : Promise.resolve();
+      return new Promise((resolve) => {
+        img.addEventListener("load", resolve, {once: true});
+        img.addEventListener("error", resolve, {once: true});
+      });
+    }));
+  };
+
+  const appendCanvasPages = async (pdf, canvas) => {
+    const sliceHeight = Math.round(canvas.width * A4_HEIGHT / A4_WIDTH);
+    for (let top = 0; top < canvas.height; top += sliceHeight) {
+      const fragment = document.createElement("canvas");
+      fragment.width = canvas.width;
+      fragment.height = sliceHeight;
+      const context = fragment.getContext("2d");
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, fragment.width, fragment.height);
+      const visibleHeight = Math.min(sliceHeight, canvas.height - top);
+      context.drawImage(canvas, 0, top, canvas.width, visibleHeight, 0, 0, canvas.width, visibleHeight);
+      const imageBlob = await new Promise((resolve, reject) => {
+        fragment.toBlob((blob) => blob ? resolve(blob) : reject(new Error("無法建立報價頁面")), "image/png");
+      });
+      const image = await pdf.embedPng(await imageBlob.arrayBuffer());
+      const page = pdf.addPage([A4_WIDTH, A4_HEIGHT]);
+      page.drawImage(image, {x: 0, y: 0, width: A4_WIDTH, height: A4_HEIGHT});
+    }
+  };
+
+  const exportPDF = async () => {
+    downloadButton.disabled = true;
+    printButton.disabled = true;
+    status.textContent = "正在產生報價頁面…";
+    try {
+      await waitForAssets();
+      const pdf = await PDFLib.PDFDocument.create();
+      const pages = Array.from(document.querySelectorAll(".quote-page"));
+      for (let index = 0; index < pages.length; index += 1) {
+        status.textContent = `正在產生報價頁面 ${index + 1}/${pages.length}…`;
+        const element = pages[index];
+        const canvas = await html2canvas(element, {
+          backgroundColor: "#ffffff",
+          height: element.scrollHeight,
+          logging: false,
+          scale: 2,
+          useCORS: true,
+          width: element.scrollWidth
+        });
+        await appendCanvasPages(pdf, canvas);
+      }
+
+      for (let index = 0; index < attachmentURLs.length; index += 1) {
+        status.textContent = `正在合併附件 ${index + 1}/${attachmentURLs.length}…`;
+        const response = await fetch(attachmentURLs[index], {credentials: "same-origin"});
+        if (!response.ok) throw new Error(`附件 ${index + 1} 讀取失敗`);
+        const attachment = await PDFLib.PDFDocument.load(await response.arrayBuffer());
+        const attachmentPages = await pdf.copyPages(attachment, attachment.getPageIndices());
+        attachmentPages.forEach((page) => pdf.addPage(page));
+      }
+
+      status.textContent = "正在下載…";
+      const bytes = await pdf.save();
+      const blobURL = URL.createObjectURL(new Blob([bytes], {type: "application/pdf"}));
+      const link = document.createElement("a");
+      link.href = blobURL;
+      link.download = outputFilename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(blobURL), 10000);
+      status.textContent = `完成：共 ${pdf.getPageCount()} 頁，已合併 ${attachmentURLs.length} 份附件`;
+    } catch (error) {
+      console.error(error);
+      status.textContent = `匯出失敗：${error.message || error}`;
+      alert(status.textContent);
+    } finally {
+      downloadButton.disabled = false;
+      printButton.disabled = false;
+    }
+  };
+
+  downloadButton.addEventListener("click", exportPDF);
+  printButton.addEventListener("click", () => print());
+  addEventListener("load", () => {
+    if (new URLSearchParams(location.search).get("download") === "1") {
+      setTimeout(exportPDF, 150);
+    }
+  });
+})();
+</script>
+{{end}}
+{{template "base" .}}

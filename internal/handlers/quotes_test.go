@@ -1,0 +1,259 @@
+package handlers
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
+	"testing"
+
+	_ "modernc.org/sqlite"
+)
+
+type testAttachmentStore struct {
+	objects map[string][]byte
+}
+
+func (s *testAttachmentStore) Put(_ context.Context, key, _ string, r io.Reader) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	s.objects[key] = data
+	return nil
+}
+
+func (s *testAttachmentStore) Open(_ context.Context, key string) (io.ReadCloser, error) {
+	return io.NopCloser(bytes.NewReader(s.objects[key])), nil
+}
+
+func (s *testAttachmentStore) Delete(_ context.Context, key string) error {
+	delete(s.objects, key)
+	return nil
+}
+
+func (s *testAttachmentStore) Close() error { return nil }
+
+func TestQuoteUpdateSavesCompanyDefaultsAndIntegerCheckbox(t *testing.T) {
+	d, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	_, err = d.Exec(`
+		CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+		INSERT INTO settings(key,value) VALUES
+			('company_name','睿藝有限公司 ReViz'),
+			('company_contact','簡信昌'),
+			('company_email','hcchien@gmail.com'),
+			('company_tax_id','62228678');
+		CREATE TABLE quotes (
+			id INTEGER PRIMARY KEY,
+			title TEXT, client_name TEXT, issuer_name TEXT, currency TEXT,
+			discount_type TEXT, discount_value REAL, tax_rate REAL, note TEXT,
+			quote_date TEXT, valid_until TEXT, issuer_contact TEXT, issuer_email TEXT,
+			issuer_tax_id TEXT, project_content TEXT, terms TEXT, signature_label TEXT,
+			quote_language TEXT, quote_type TEXT, show_unit_price INTEGER,
+			personal_name TEXT, personal_contact TEXT, updated_at TEXT, status TEXT
+		);
+		INSERT INTO quotes(id,status) VALUES(7,'draft');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{
+		"title":            {"口述歷史記憶資料庫"},
+		"client_name":      {"國際特赦組織"},
+		"quote_type":       {"company"},
+		"currency":         {"TWD"},
+		"discount_type":    {"percent"},
+		"discount_value":   {"0"},
+		"tax_rate":         {"5"},
+		"quote_date":       {"2026-05-16"},
+		"valid_until":      {"2026-05-30"},
+		"quote_language":   {"zh-TW"},
+		"show_unit_price":  {"1"},
+		"project_content":  {"專案內容"},
+		"terms":            {"下方報價為含稅價（5%）。"},
+		"signature_label":  {"簽核"},
+		"issuer_name":      {""},
+		"issuer_contact":   {""},
+		"issuer_email":     {""},
+		"issuer_tax_id":    {""},
+		"personal_name":    {""},
+		"personal_contact": {""},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/quotes/7", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("id", "7")
+	rec := httptest.NewRecorder()
+
+	(&Server{DB: d}).quoteUpdate(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("quoteUpdate status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Location"); got != "/quotes/7?saved=1" {
+		t.Fatalf("redirect = %q", got)
+	}
+
+	var name, contact, email, taxID string
+	var showUnitPrice int
+	err = d.QueryRow(`SELECT issuer_name,issuer_contact,issuer_email,issuer_tax_id,show_unit_price FROM quotes WHERE id=7`).
+		Scan(&name, &contact, &email, &taxID, &showUnitPrice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name != "睿藝有限公司 ReViz" || contact != "簡信昌" || email != "hcchien@gmail.com" || taxID != "62228678" {
+		t.Fatalf("company defaults = %q, %q, %q, %q", name, contact, email, taxID)
+	}
+	if showUnitPrice != 1 {
+		t.Fatalf("show_unit_price = %d; want 1", showUnitPrice)
+	}
+}
+
+func TestCheckboxInt(t *testing.T) {
+	for input, want := range map[string]int{"": 0, "0": 0, "1": 1, "on": 1, "true": 1} {
+		if got := checkboxInt(input); got != want {
+			t.Fatalf("checkboxInt(%q) = %d; want %d", input, got, want)
+		}
+	}
+}
+
+func TestQuoteAttachmentUploadAcceptsMultiplePDFs(t *testing.T) {
+	d, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	_, err = d.Exec(`
+		CREATE TABLE quotes (id INTEGER PRIMARY KEY, status TEXT NOT NULL);
+		CREATE TABLE quote_attachments (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			quote_id INTEGER NOT NULL,
+			storage_key TEXT NOT NULL UNIQUE,
+			original_filename TEXT NOT NULL,
+			content_type TEXT NOT NULL,
+			size_bytes INTEGER NOT NULL,
+			uploaded_by_id INTEGER,
+			created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO quotes(id,status) VALUES(7,'draft');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for name, data := range map[string][]byte{
+		"附件一.pdf": []byte("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF"),
+		"附件二.pdf": []byte("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF"),
+	} {
+		part, err := writer.CreateFormFile("files", name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write(data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store := &testAttachmentStore{objects: map[string][]byte{}}
+	req := httptest.NewRequest(http.MethodPost, "/quotes/7/attachments", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.SetPathValue("id", "7")
+	rec := httptest.NewRecorder()
+	(&Server{DB: d, Attachments: store}).quoteAttachmentUpload(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("upload status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Location"); got != "/quotes/7" {
+		t.Fatalf("redirect = %q", got)
+	}
+	var count int
+	if err := d.QueryRow(`SELECT COUNT(*) FROM quote_attachments WHERE quote_id=7`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 || len(store.objects) != 2 {
+		t.Fatalf("saved attachments = %d rows, %d objects; want 2 and 2", count, len(store.objects))
+	}
+}
+
+func TestQuoteItemNumbersRestartForEveryQuote(t *testing.T) {
+	d, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	_, err = d.Exec(`
+		CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+		INSERT INTO settings(key,value) VALUES('company_name','ReViz'),('fiscal_year','2026');
+		CREATE TABLE quotes (
+			id INTEGER PRIMARY KEY, quote_no TEXT, title TEXT, client_name TEXT,
+			issuer_name TEXT, currency TEXT, discount_type TEXT, discount_value REAL,
+			tax_rate REAL, note TEXT, status TEXT, version_no INTEGER, parent_quote_id INTEGER,
+			project_id INTEGER, quote_date TEXT, valid_until TEXT, issuer_contact TEXT,
+			issuer_email TEXT, issuer_tax_id TEXT, project_content TEXT, terms TEXT,
+			signature_label TEXT, quote_language TEXT, quote_type TEXT, show_unit_price INTEGER,
+			personal_name TEXT, personal_contact TEXT
+		);
+		CREATE TABLE quote_items (
+			id INTEGER PRIMARY KEY, quote_id INTEGER, description TEXT, detail TEXT,
+			quantity REAL, unit TEXT, unit_price_cents INTEGER, sort_order INTEGER
+		);
+		CREATE TABLE quote_specifications (
+			id INTEGER PRIMARY KEY, quote_id INTEGER, feature TEXT, use_case TEXT,
+			capability TEXT, implementation_steps TEXT, sort_order INTEGER
+		);
+		CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT);
+		CREATE TABLE quote_attachments (
+			id INTEGER PRIMARY KEY, quote_id INTEGER, storage_key TEXT, original_filename TEXT,
+			content_type TEXT, size_bytes INTEGER, uploaded_by_id INTEGER, created_at TEXT
+		);
+		INSERT INTO quotes VALUES
+			(1,'Q-1','第一張','客戶','ReViz','TWD','percent',0,0,'','draft',1,NULL,NULL,'2026-07-30',NULL,'','','','','','簽核','zh-TW','company',0,'',''),
+			(2,'Q-2','第二張','客戶','ReViz','TWD','percent',0,0,'','draft',1,NULL,NULL,'2026-07-30',NULL,'','','','','','簽核','zh-TW','company',0,'','');
+		INSERT INTO quote_items VALUES
+			(101,1,'第一張第一項','',1,'式',100,0),
+			(102,1,'第一張第二項','',1,'式',100,1),
+			(205,2,'第二張第一項','',1,'式',100,0),
+			(220,2,'第二張第二項','',1,'式',100,1);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewServer(d, os.DirFS("../.."), &testAttachmentStore{objects: map[string][]byte{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, quoteID := range []string{"1", "2"} {
+		req := httptest.NewRequest(http.MethodGet, "/quotes/"+quoteID+"/print", nil)
+		req.SetPathValue("id", quoteID)
+		rec := httptest.NewRecorder()
+		s.quotePrint(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("quote %s status = %d, body = %s", quoteID, rec.Code, rec.Body.String())
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, "<td>1</td>") || !strings.Contains(body, "<td>2</td>") {
+			t.Fatalf("quote %s does not render item numbers 1 and 2", quoteID)
+		}
+		if strings.Contains(body, "<td>101</td>") || strings.Contains(body, "<td>205</td>") || strings.Contains(body, "<td>220</td>") {
+			t.Fatalf("quote %s leaks global item IDs into display numbering", quoteID)
+		}
+	}
+}

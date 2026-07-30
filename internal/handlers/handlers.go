@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"database/sql"
-	"embed"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -29,17 +28,21 @@ type Server struct {
 // NewServer parses the embedded templates and returns a ready Server.
 // Each page template is parsed in its own template tree alongside base.html,
 // so the page-specific {{define "content"}} blocks do not collide.
-func NewServer(d *sql.DB, embedFS embed.FS, attachments filestore.Store) (*Server, error) {
+func NewServer(d *sql.DB, templateFS fs.FS, attachments filestore.Store) (*Server, error) {
 	funcs := template.FuncMap{
 		"money":    money.FormatCentsThousands,
 		"moneyRaw": money.FormatCents,
-		"dict":     dict,
-		"add":      func(a, b int) int { return a + b },
-		"sub":      func(a, b int) int { return a - b },
-		"mul":      func(a, b int) int { return a * b },
-		"mod":      func(a, b int) int { return a % b },
-		"addi":     func(a, b int) int { return a + b },
-		"divf":     func(a, b int) float64 { return float64(a) / float64(b) },
+		"quoteMoney": func(c int64) string {
+			return strings.TrimSuffix(money.FormatCentsThousands(c), ".00")
+		},
+		"dict":        dict,
+		"add":         func(a, b int) int { return a + b },
+		"quoteItemNo": quoteItemDisplayNumber,
+		"sub":         func(a, b int) int { return a - b },
+		"mul":         func(a, b int) int { return a * b },
+		"mod":         func(a, b int) int { return a % b },
+		"addi":        func(a, b int) int { return a + b },
+		"divf":        func(a, b int) float64 { return float64(a) / float64(b) },
 		"pct": func(a, b int64) int {
 			if b == 0 {
 				return 0
@@ -58,8 +61,31 @@ func NewServer(d *sql.DB, embedFS embed.FS, attachments filestore.Store) (*Serve
 		"int64":          func(n int) int64 { return int64(n) },
 		"intIdx":         func(arr [13]int64, i int) int64 { return arr[i] },
 		"attachmentSize": formatAttachmentSize,
+		"currencySymbol": func(currency string) string {
+			switch currency {
+			case "HKD":
+				return "HK$"
+			case "JPY", "CNY":
+				return "¥"
+			case "GBP":
+				return "£"
+			case "EUR":
+				return "€"
+			default:
+				return "$"
+			}
+		},
+		"dateSlash": func(value string) string {
+			return strings.ReplaceAll(value, "-", "/")
+		},
+		"lines": func(value string) []string {
+			if value == "" {
+				return nil
+			}
+			return strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n")
+		},
 	}
-	entries, err := fs.ReadDir(embedFS, "web/templates")
+	entries, err := fs.ReadDir(templateFS, "web/templates")
 	if err != nil {
 		return nil, fmt.Errorf("read templates dir: %w", err)
 	}
@@ -70,7 +96,7 @@ func NewServer(d *sql.DB, embedFS embed.FS, attachments filestore.Store) (*Serve
 			continue
 		}
 		t, err := template.New(name).Funcs(funcs).ParseFS(
-			embedFS,
+			templateFS,
 			path.Join("web/templates", "base.html"),
 			path.Join("web/templates", name),
 		)
@@ -112,6 +138,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /journal/new", view(s.journalNew))
 	mux.Handle("GET /journal/{id}/edit", view(s.journalEdit))
 	mux.Handle("GET /attachments/{id}", view(s.attachmentDownload))
+	mux.Handle("GET /quote-attachments/{id}", view(s.quoteAttachmentDownload))
 	mux.Handle("GET /accounts", view(s.accountsList))
 	mux.Handle("GET /categories", view(s.categoriesList))
 	mux.Handle("GET /projects", view(s.projectsList))
@@ -152,6 +179,8 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /quotes/{id}", acct(s.quoteUpdate))
 	mux.Handle("POST /quotes/{id}/items", acct(s.quoteItemCreate))
 	mux.Handle("POST /quotes/{id}/specifications", acct(s.quoteSpecificationCreate))
+	mux.Handle("POST /quotes/{id}/attachments", acct(s.quoteAttachmentUpload))
+	mux.Handle("POST /quote-attachments/{id}/delete", acct(s.quoteAttachmentDelete))
 	mux.Handle("POST /quotes/{id}/revise", acct(s.quoteRevise))
 	mux.Handle("POST /quotes/{id}/accept", acct(s.quoteAccept))
 	mux.Handle("POST /projects/{id}/budget", acct(s.projectBudgetSave))
