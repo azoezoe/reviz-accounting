@@ -28,13 +28,15 @@ type quoteView struct {
 	Items                                                                        []quoteItemView
 	QuoteDate, ValidUntil, IssuerContact, IssuerEmail, IssuerTaxID               string
 	ProjectContent, Terms, SignatureLabel                                        string
+	QuoteLanguage, QuoteType, PersonalName, PersonalContact                      string
+	ShowUnitPrice                                                                bool
 	Specifications                                                               []quoteSpecificationView
 }
 
 func (s *Server) loadQuote(id int64) (quoteView, error) {
 	var q quoteView
-	err := s.DB.QueryRow(`SELECT id,quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,status,version_no,COALESCE(parent_quote_id,0),COALESCE(project_id,0),quote_date,COALESCE(valid_until,''),issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label FROM quotes WHERE id=$1`, id).
-		Scan(&q.ID, &q.QuoteNo, &q.Title, &q.ClientName, &q.IssuerName, &q.Currency, &q.DiscountType, &q.DiscountValue, &q.TaxRate, &q.Note, &q.Status, &q.VersionNo, &q.ParentQuoteID, &q.ProjectID, &q.QuoteDate, &q.ValidUntil, &q.IssuerContact, &q.IssuerEmail, &q.IssuerTaxID, &q.ProjectContent, &q.Terms, &q.SignatureLabel)
+	err := s.DB.QueryRow(`SELECT id,quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,status,version_no,COALESCE(parent_quote_id,0),COALESCE(project_id,0),quote_date,COALESCE(valid_until,''),issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact FROM quotes WHERE id=$1`, id).
+		Scan(&q.ID, &q.QuoteNo, &q.Title, &q.ClientName, &q.IssuerName, &q.Currency, &q.DiscountType, &q.DiscountValue, &q.TaxRate, &q.Note, &q.Status, &q.VersionNo, &q.ParentQuoteID, &q.ProjectID, &q.QuoteDate, &q.ValidUntil, &q.IssuerContact, &q.IssuerEmail, &q.IssuerTaxID, &q.ProjectContent, &q.Terms, &q.SignatureLabel, &q.QuoteLanguage, &q.QuoteType, &q.ShowUnitPrice, &q.PersonalName, &q.PersonalContact)
 	if err != nil {
 		return q, err
 	}
@@ -138,7 +140,7 @@ func (s *Server) quoteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var id int64
-	err := s.DB.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13,$14,$15,$16,$17) RETURNING id`, r.FormValue("quote_no"), r.FormValue("title"), r.FormValue("client_name"), r.FormValue("issuer_name"), defaultString(r.FormValue("currency"), "TWD"), defaultString(r.FormValue("discount_type"), "amount"), discount, tax, r.FormValue("note"), defaultString(r.FormValue("quote_date"), time.Now().Format("2006-01-02")), r.FormValue("valid_until"), r.FormValue("issuer_contact"), r.FormValue("issuer_email"), r.FormValue("issuer_tax_id"), r.FormValue("project_content"), r.FormValue("terms"), defaultString(r.FormValue("signature_label"), "簽核")).Scan(&id)
+	err := s.DB.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,quote_date,issuer_contact,project_content,quote_language,quote_type,show_unit_price,personal_name,personal_contact) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id`, r.FormValue("quote_no"), r.FormValue("title"), r.FormValue("client_name"), r.FormValue("issuer_name"), defaultString(r.FormValue("currency"), "TWD"), defaultString(r.FormValue("discount_type"), "percent"), discount, tax, r.FormValue("note"), time.Now().Format("2006-01-02"), r.FormValue("issuer_contact"), r.FormValue("project_content"), defaultString(r.FormValue("quote_language"), "zh-TW"), defaultString(r.FormValue("quote_type"), "company"), r.FormValue("show_unit_price") == "1", r.FormValue("personal_name"), r.FormValue("personal_contact")).Scan(&id)
 	if err != nil {
 		s.error500(w, err)
 		return
@@ -168,7 +170,7 @@ func (s *Server) quoteUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "報價單欄位格式錯誤", http.StatusBadRequest)
 		return
 	}
-	_, err := s.DB.Exec(`UPDATE quotes SET title=$1,client_name=$2,issuer_name=$3,currency=$4,discount_type=$5,discount_value=$6,tax_rate=$7,note=$8,quote_date=$9,valid_until=NULLIF($10,''),issuer_contact=$11,issuer_email=$12,issuer_tax_id=$13,project_content=$14,terms=$15,signature_label=$16,updated_at=CURRENT_TIMESTAMP::text WHERE id=$17 AND status='draft'`, r.FormValue("title"), r.FormValue("client_name"), r.FormValue("issuer_name"), defaultString(r.FormValue("currency"), "TWD"), defaultString(r.FormValue("discount_type"), "amount"), discount, tax, r.FormValue("note"), r.FormValue("quote_date"), r.FormValue("valid_until"), r.FormValue("issuer_contact"), r.FormValue("issuer_email"), r.FormValue("issuer_tax_id"), r.FormValue("project_content"), r.FormValue("terms"), defaultString(r.FormValue("signature_label"), "簽核"), id)
+	_, err := s.DB.Exec(`UPDATE quotes SET title=$1,client_name=$2,issuer_name=$3,currency=$4,discount_type=$5,discount_value=$6,tax_rate=$7,note=$8,issuer_contact=$9,project_content=$10,quote_language=$11,quote_type=$12,show_unit_price=$13,personal_name=$14,personal_contact=$15,updated_at=CURRENT_TIMESTAMP::text WHERE id=$16 AND status='draft'`, r.FormValue("title"), r.FormValue("client_name"), r.FormValue("issuer_name"), defaultString(r.FormValue("currency"), "TWD"), defaultString(r.FormValue("discount_type"), "percent"), discount, tax, r.FormValue("note"), r.FormValue("issuer_contact"), r.FormValue("project_content"), defaultString(r.FormValue("quote_language"), "zh-TW"), defaultString(r.FormValue("quote_type"), "company"), r.FormValue("show_unit_price") == "1", r.FormValue("personal_name"), r.FormValue("personal_contact"), id)
 	if err != nil {
 		s.error500(w, err)
 		return
@@ -196,7 +198,7 @@ func (s *Server) quoteRevise(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var newID int64
-	err = s.DB.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label) SELECT $1,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,$2,id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label FROM quotes WHERE id=$3 RETURNING id`, fmt.Sprintf("%s-R%d", strings.Split(q.QuoteNo, "-R")[0], q.VersionNo+1), q.VersionNo+1, id).Scan(&newID)
+	err = s.DB.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact) SELECT $1,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,$2,id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact FROM quotes WHERE id=$3 RETURNING id`, fmt.Sprintf("%s-R%d", strings.Split(q.QuoteNo, "-R")[0], q.VersionNo+1), q.VersionNo+1, id).Scan(&newID)
 	if err == nil {
 		_, err = s.DB.Exec(`INSERT INTO quote_items(quote_id,description,quantity,unit,unit_price_cents,sort_order) SELECT $1,description,quantity,unit,unit_price_cents,sort_order FROM quote_items WHERE quote_id=$2`, newID, id)
 	}
