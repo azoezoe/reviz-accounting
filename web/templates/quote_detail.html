@@ -278,7 +278,7 @@
   </form>
   {{if eq .Quote.Status "draft"}}
   <form method="post" action="/quotes/{{.Quote.ID}}/delete" onsubmit="return confirm('確定刪除此草稿報價單？其項目、規格與附件都會一併刪除。')">
-    <button class="lg-row-action is-danger" type="submit">刪除報價單</button>
+    <button class="lg-btn-danger" type="submit">刪除報價單</button>
   </form>
   {{end}}
   {{end}}

@@ -45,7 +45,7 @@
   </div>
   <table class="lg-table">
     <thead>
-      <tr><th>編號</th><th>提案</th><th>客戶</th><th>版本／狀態</th><th class="right">總額</th><th></th></tr>
+      <tr><th>編號</th><th>提案</th><th>客戶</th><th>版本／狀態</th><th class="right">總額</th><th class="right"></th></tr>
     </thead>
     <tbody>
       {{range .Quotes}}
@@ -55,7 +55,18 @@
         <td>{{.ClientName}}</td>
         <td>V{{.VersionNo}} · {{if eq .Status "accepted"}}已同意{{else if eq .Status "draft"}}草稿{{else}}已送出{{end}}</td>
         <td class="right">{{money .TotalCents}} {{.Currency}}</td>
-        <td><a class="lg-btn-link" href="/quotes/{{.ID}}">開啟 →</a></td>
+        <td class="right">
+          <span class="lg-row-actions">
+            <a class="lg-btn-link" href="/quotes/{{.ID}}">開啟 →</a>
+            {{if eq .Status "draft"}}
+            <form method="post" action="/quotes/{{.ID}}/delete" style="display:inline;" onsubmit="return confirm('確定刪除「{{.QuoteNo}}」草稿？其項目、規格與附件都會一併刪除。')">
+              <button class="lg-row-action is-danger" type="submit" title="刪除報價單" aria-label="刪除報價單">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+              </button>
+            </form>
+            {{end}}
+          </span>
+        </td>
       </tr>
       {{else}}
       <tr><td colspan="6">尚無報價提案</td></tr>
