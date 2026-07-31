@@ -58,6 +58,10 @@ func (s *Server) projectManagementWrite(name string, a map[string]any) (any, err
 		return s.deleteStandaloneQuote(a)
 	case "create_standalone_quote_item":
 		return s.createStandaloneQuoteItem(a)
+	case "update_standalone_quote_item":
+		return s.updateStandaloneQuoteItem(a)
+	case "delete_standalone_quote_item":
+		return s.deleteStandaloneQuoteItem(a)
 	case "revise_quote":
 		return s.reviseStandaloneQuote(a)
 	case "accept_quote":
@@ -344,6 +348,65 @@ func (s *Server) createStandaloneQuoteItem(a map[string]any) (any, error) {
 	var itemID int64
 	err := s.DB.QueryRow(`INSERT INTO quote_items(quote_id,description,quantity,unit,unit_price_cents,sort_order) SELECT $1,$2,$3,$4,$5,COUNT(*) FROM quote_items WHERE quote_id=$1 RETURNING id`, id, desc, qty, defaultText(str(a, "unit"), "式"), price).Scan(&itemID)
 	return content(map[string]any{"item_id": itemID, "quote_id": id}, err)
+}
+
+func (s *Server) updateStandaloneQuoteItem(a map[string]any) (any, error) {
+	quoteID, itemID := numID(a, "quote_id"), numID(a, "item_id")
+	if quoteID <= 0 || itemID <= 0 {
+		return nil, fmtErr("quote_id 與 item_id 必填")
+	}
+	sets, args := []string{}, []any{}
+	for _, field := range []string{"description", "detail", "unit"} {
+		if _, ok := a[field]; ok {
+			value := str(a, field)
+			if field == "description" && strings.TrimSpace(value) == "" {
+				return nil, fmtErr("description 不可為空")
+			}
+			if field == "unit" && strings.TrimSpace(value) == "" {
+				value = "式"
+			}
+			sets, args = append(sets, field+"=?"), append(args, value)
+		}
+	}
+	if _, ok := a["quantity"]; ok {
+		if num(a, "quantity") <= 0 {
+			return nil, fmtErr("quantity 必須大於 0")
+		}
+		sets, args = append(sets, "quantity=?"), append(args, num(a, "quantity"))
+	}
+	if _, ok := a["unit_price_cents"]; ok {
+		if num(a, "unit_price_cents") < 0 {
+			return nil, fmtErr("unit_price_cents 不可為負數")
+		}
+		sets, args = append(sets, "unit_price_cents=?"), append(args, numID(a, "unit_price_cents"))
+	}
+	if len(sets) == 0 {
+		return nil, fmtErr("至少提供一個要更新的欄位")
+	}
+	args = append(args, itemID, quoteID)
+	result, err := s.DB.Exec(`UPDATE quote_items SET `+strings.Join(sets, ",")+` WHERE id=? AND quote_id=? AND EXISTS (SELECT 1 FROM quotes WHERE id=? AND status='draft')`, append(args, quoteID)...)
+	if err != nil {
+		return nil, err
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		return nil, fmtErr("報價項目不存在或報價單已鎖定")
+	}
+	return content(map[string]any{"quote_id": quoteID, "item_id": itemID, "updated": true}, nil)
+}
+
+func (s *Server) deleteStandaloneQuoteItem(a map[string]any) (any, error) {
+	quoteID, itemID := numID(a, "quote_id"), numID(a, "item_id")
+	if quoteID <= 0 || itemID <= 0 {
+		return nil, fmtErr("quote_id 與 item_id 必填")
+	}
+	result, err := s.DB.Exec(`DELETE FROM quote_items WHERE id=? AND quote_id=? AND EXISTS (SELECT 1 FROM quotes WHERE id=? AND status='draft')`, itemID, quoteID, quoteID)
+	if err != nil {
+		return nil, err
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		return nil, fmtErr("報價項目不存在或報價單已鎖定")
+	}
+	return content(map[string]any{"quote_id": quoteID, "item_id": itemID, "deleted": true}, nil)
 }
 func (s *Server) reviseStandaloneQuote(a map[string]any) (any, error) {
 	id := numID(a, "quote_id")

@@ -166,7 +166,7 @@
   <div class="lg-table-scroll">
     <table class="lg-table">
       <thead>
-        <tr><th>#</th><th>項目</th><th>說明</th>{{if .Quote.ShowUnitPrice}}<th class="right">數量</th><th class="right">單價</th>{{end}}<th class="right">金額</th></tr>
+        <tr><th>#</th><th>項目</th><th>說明</th>{{if .Quote.ShowUnitPrice}}<th class="right">數量</th><th class="right">單價</th>{{end}}<th class="right">金額</th>{{if eq .Quote.Status "draft"}}<th></th>{{end}}</tr>
       </thead>
       <tbody>
         {{range $index, $item := .Quote.Items}}
@@ -176,9 +176,29 @@
           <td>{{$item.Detail}}</td>
           {{if $.Quote.ShowUnitPrice}}<td class="right">{{printf "%.2f" $item.Quantity}} {{$item.Unit}}</td><td class="right">{{money $item.UnitPriceCents}}</td>{{end}}
           <td class="right">{{money $item.LineTotalCents}}</td>
+          {{if eq $.Quote.Status "draft"}}
+          <td class="right">
+            <details style="display:inline-block;text-align:left;">
+              <summary class="lg-btn-link" style="display:inline-block;">修改</summary>
+              <form method="post" action="/quotes/{{$.Quote.ID}}/items/{{$item.ID}}" class="mgmt-inline-form" style="grid-template-columns:repeat(5,minmax(100px,1fr)) auto;margin-top:8px;padding:10px;background:var(--bg-muted);border-radius:var(--r-sm);min-width:620px;">
+                <input class="lg-input" name="description" value="{{$item.Description}}" required placeholder="項目名稱">
+                <input class="lg-input" name="detail" value="{{$item.Detail}}" placeholder="說明">
+                <input class="lg-input" type="number" name="quantity" value="{{$item.Quantity}}" step="0.01" required placeholder="數量">
+                <input class="lg-input" name="unit" value="{{$item.Unit}}" placeholder="單位">
+                <input class="lg-input" type="number" name="unit_price" value="{{moneyRaw $item.UnitPriceCents}}" step="0.01" required placeholder="單價">
+                <button class="lg-btn-primary" type="submit">儲存</button>
+              </form>
+            </details>
+            <form method="post" action="/quotes/{{$.Quote.ID}}/items/{{$item.ID}}/delete" style="display:inline;" onsubmit="return confirm('確定刪除「{{$item.Description}}」？')">
+              <button class="lg-row-action is-danger" type="submit" title="刪除項目" aria-label="刪除項目">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+              </button>
+            </form>
+          </td>
+          {{end}}
         </tr>
         {{else}}
-        <tr><td colspan="6">尚無項目</td></tr>
+        <tr><td colspan="7">尚無項目</td></tr>
         {{end}}
       </tbody>
     </table>

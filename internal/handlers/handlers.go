@@ -178,6 +178,8 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /quotes", acct(s.quoteCreate))
 	mux.Handle("POST /quotes/{id}", acct(s.quoteUpdate))
 	mux.Handle("POST /quotes/{id}/items", acct(s.quoteItemCreate))
+	mux.Handle("POST /quotes/{id}/items/{itemID}", acct(s.quoteItemUpdate))
+	mux.Handle("POST /quotes/{id}/items/{itemID}/delete", acct(s.quoteItemDelete))
 	mux.Handle("POST /quotes/{id}/specifications", acct(s.quoteSpecificationCreate))
 	mux.Handle("POST /quotes/{id}/attachments", acct(s.quoteAttachmentUpload))
 	mux.Handle("POST /quote-attachments/{id}/delete", acct(s.quoteAttachmentDelete))

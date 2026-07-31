@@ -230,6 +230,40 @@ func (s *Server) quoteItemCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, "/quotes/"+r.PathValue("id"), 303)
 }
+
+func (s *Server) quoteItemUpdate(w http.ResponseWriter, r *http.Request) {
+	quoteID, itemID := parseInt64(r.PathValue("id")), parseInt64(r.PathValue("itemID"))
+	qty, e1 := strconv.ParseFloat(defaultString(r.FormValue("quantity"), "1"), 64)
+	price, e2 := money.ParseCents(r.FormValue("unit_price"))
+	if strings.TrimSpace(r.FormValue("description")) == "" || e1 != nil || e2 != nil || qty <= 0 || price < 0 {
+		http.Error(w, "報價項目格式錯誤", http.StatusBadRequest)
+		return
+	}
+	result, err := s.DB.Exec(`UPDATE quote_items SET description=$1,detail=$2,quantity=$3,unit=$4,unit_price_cents=$5 WHERE id=$6 AND quote_id=$7 AND EXISTS (SELECT 1 FROM quotes WHERE id=$7 AND status='draft')`, strings.TrimSpace(r.FormValue("description")), r.FormValue("detail"), qty, defaultString(r.FormValue("unit"), "式"), price, itemID, quoteID)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		http.Error(w, "報價項目不存在或報價單已鎖定", http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/quotes/"+strconv.FormatInt(quoteID, 10), http.StatusSeeOther)
+}
+
+func (s *Server) quoteItemDelete(w http.ResponseWriter, r *http.Request) {
+	quoteID, itemID := parseInt64(r.PathValue("id")), parseInt64(r.PathValue("itemID"))
+	result, err := s.DB.Exec(`DELETE FROM quote_items WHERE id=$1 AND quote_id=$2 AND EXISTS (SELECT 1 FROM quotes WHERE id=$2 AND status='draft')`, itemID, quoteID)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		http.Error(w, "報價項目不存在或報價單已鎖定", http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/quotes/"+strconv.FormatInt(quoteID, 10), http.StatusSeeOther)
+}
 func (s *Server) quoteUpdate(w http.ResponseWriter, r *http.Request) {
 	id := parseInt64(r.PathValue("id"))
 	discount, e1 := strconv.ParseFloat(zeroIfEmpty(r.FormValue("discount_value")), 64)
