@@ -13,6 +13,7 @@ const pageSize = 50
 
 type budgetPostingForm struct {
 	Kind         string
+	ProjectID    string
 	AllocationID string
 	Amount       string
 	Note         string
@@ -186,10 +187,7 @@ func (s *Server) renderJournalEdit(w http.ResponseWriter, r *http.Request, t *mo
 	counterparties, _ := models.ListCounterparties(s.DB, "")
 	attachments, _ := models.ListAttachments(s.DB, t.ID)
 	postings, _ := models.ListBudgetPostings(s.DB, t.ID)
-	var allocations []models.BudgetAllocation
-	if t.ProjectID.Valid {
-		allocations, _ = models.ListProjectBudgetAllocations(s.DB, t.ProjectID.Int64)
-	}
+	allocations, _ := models.ListAllProjectBudgetAllocations(s.DB)
 
 	s.render(w, r, "journal_form.html", map[string]any{
 		"Title":             "編輯交易",
@@ -223,7 +221,7 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "找不到交易", 404)
 		return
 	}
-	form := &budgetPostingForm{Kind: r.FormValue("allocation_kind"), AllocationID: r.FormValue("budget_allocation_id"), Amount: r.FormValue("amount"), Note: r.FormValue("note")}
+	form := &budgetPostingForm{Kind: r.FormValue("allocation_kind"), ProjectID: r.FormValue("project_id"), AllocationID: r.FormValue("budget_allocation_id"), Amount: r.FormValue("amount"), Note: r.FormValue("note")}
 	amt, err := money.ParseCents(r.FormValue("amount"))
 	if err != nil || amt <= 0 {
 		s.journalBudgetPostingError(w, r, t, form, "amount", "請輸入大於 0 的有效分攤金額")
@@ -240,17 +238,18 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 		p.AllocationValid = true
 	}
 	if p.AllocationValid {
-		if !t.ProjectID.Valid {
-			s.journalBudgetPostingError(w, r, t, form, "allocation", "此交易尚未指定專案，無法對應專案預算項目")
+		projectID := parseInt64(r.FormValue("project_id"))
+		if projectID <= 0 {
+			s.journalBudgetPostingError(w, r, t, form, "project", "請選擇此筆分攤所屬專案")
 			return
 		}
-		ok, e := models.BudgetAllocationBelongsToProject(s.DB, p.AllocationID, t.ProjectID.Int64)
+		ok, e := models.BudgetAllocationBelongsToProject(s.DB, p.AllocationID, projectID)
 		if e != nil {
 			s.error500(w, e)
 			return
 		}
 		if !ok {
-			s.journalBudgetPostingError(w, r, t, form, "allocation", "選擇的預算項目不屬於此交易的專案")
+			s.journalBudgetPostingError(w, r, t, form, "allocation", "選擇的預算項目不屬於此分攤專案")
 			return
 		}
 	}
@@ -270,10 +269,10 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	// A company reserve is a reporting attribution of income, not a second
-	// cash movement. Other types can be split, but each cash-backed type must
-	// still fit within this journal transaction.
+	// cash movement. All other types share the same payment amount, including
+	// rows attributed to different projects.
 	if kind != "company_reserve" {
-		used, err := models.SumBudgetPostingsByKind(s.DB, txID, kind)
+		used, err := models.SumCashBudgetPostings(s.DB, txID)
 		if err != nil {
 			s.error500(w, err)
 			return

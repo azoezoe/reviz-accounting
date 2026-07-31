@@ -230,7 +230,7 @@ func tools() []map[string]any {
 		{"name": "upload_receipt", "description": "上傳並附加單據到既有交易。傳 transaction_id、filename、mime_type 與 content_base64；只接受 PDF、JPG、PNG、WebP，最大 20 MB。", "inputSchema": req("transaction_id", "filename", "mime_type", "content_base64")},
 		{"name": "save_project_budget", "description": "新增或更新專案總預算；amount 為分。傳 project_id、total_amount，可選 note。", "inputSchema": req("project_id", "total_amount")},
 		{"name": "create_budget_allocation", "description": "建立專案預定分配；金額為分。傳 project_id、recipient_kind(labor_compensation|company_reserve|cost_expense)、recipient_name、planned_amount。", "inputSchema": req("project_id", "recipient_kind", "recipient_name", "planned_amount")},
-		{"name": "create_budget_posting", "description": "把既有專案支出交易對應到預算項目。傳 transaction_id、allocation_kind(partner_payout|cost_expense)、budget_allocation_id、amount(分)。", "inputSchema": req("transaction_id", "allocation_kind", "budget_allocation_id", "amount")},
+		{"name": "create_budget_posting", "description": "把既有付款拆分到一個專案預算項目。對同一 transaction_id 可重複呼叫以分攤至不同專案；所有現金分攤合計不得超過交易金額。傳 transaction_id、allocation_kind(partner_payout|cost_expense)、budget_allocation_id、amount(分)；可選 project_id 作為所選預算項目的歸屬驗證。", "inputSchema": req("transaction_id", "allocation_kind", "budget_allocation_id", "amount")},
 	}
 }
 
@@ -472,13 +472,15 @@ func (s *Server) createBudgetPosting(a map[string]any) (any, error) {
 	if allocationID := numID(a, "budget_allocation_id"); allocationID > 0 {
 		p.AllocationID, p.AllocationValid = allocationID, true
 	}
-	if !t.ProjectID.Valid || !p.AllocationValid {
-		return nil, fmtErr("交易必須指定專案並提供 budget_allocation_id")
+	if !p.AllocationValid {
+		return nil, fmtErr("budget_allocation_id 必填")
 	}
 	if p.AllocationValid {
-		ok, e := models.BudgetAllocationBelongsToProject(s.DB, p.AllocationID, t.ProjectID.Int64)
-		if e != nil || !ok {
-			return nil, fmtErr("預算分配不屬於交易專案")
+		if projectID := numID(a, "project_id"); projectID > 0 {
+			ok, e := models.BudgetAllocationBelongsToProject(s.DB, p.AllocationID, projectID)
+			if e != nil || !ok {
+				return nil, fmtErr("預算分配不屬於指定專案")
+			}
 		}
 		allocationKind, e := models.BudgetAllocationKind(s.DB, p.AllocationID)
 		if e != nil {
@@ -489,7 +491,7 @@ func (s *Server) createBudgetPosting(a map[string]any) (any, error) {
 		}
 	}
 	if kind != "company_reserve" {
-		used, e := models.SumBudgetPostingsByKind(s.DB, txID, kind)
+		used, e := models.SumCashBudgetPostings(s.DB, txID)
 		if e != nil {
 			return nil, e
 		}

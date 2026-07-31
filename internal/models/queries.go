@@ -343,8 +343,8 @@ func ListTransactions(d *sql.DB, f TxFilter) ([]Transaction, int, error) {
 		args = append(args, f.CategoryID)
 	}
 	if f.ProjectID > 0 {
-		where = append(where, `t.project_id=?`)
-		args = append(args, f.ProjectID)
+		where = append(where, `(t.project_id=? OR EXISTS (SELECT 1 FROM transaction_budget_allocations bpa JOIN project_budget_allocations pba ON pba.id=bpa.budget_allocation_id WHERE bpa.transaction_id=t.id AND pba.project_id=?))`)
+		args = append(args, f.ProjectID, f.ProjectID)
 	}
 	if f.BudgetAllocationID > 0 {
 		where = append(where, `EXISTS (SELECT 1 FROM transaction_budget_allocations bpa WHERE bpa.transaction_id=t.id AND bpa.budget_allocation_id=?)`)

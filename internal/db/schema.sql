@@ -201,6 +201,7 @@ CREATE INDEX IF NOT EXISTS idx_tx_project ON transactions(project_id);
 CREATE INDEX IF NOT EXISTS idx_milestones_project ON project_milestones(project_id);
 CREATE INDEX IF NOT EXISTS idx_budget_alloc_milestone ON project_budget_allocations(milestone_id);
 CREATE INDEX IF NOT EXISTS idx_tx_budget_alloc_tx ON transaction_budget_allocations(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_tx_budget_alloc_allocation ON transaction_budget_allocations(budget_allocation_id);
 CREATE INDEX IF NOT EXISTS idx_tx_counterparty ON transactions(counterparty_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);
