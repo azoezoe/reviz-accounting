@@ -34,6 +34,8 @@ func TestManagementToolsAreAdvertised(t *testing.T) {
 		"list_quotes":                  false,
 		"get_quote":                    false,
 		"create_quote":                 false,
+		"update_quote":                 false,
+		"delete_quote":                 false,
 		"create_standalone_quote_item": false,
 		"revise_quote":                 false,
 		"accept_quote":                 false,
@@ -64,7 +66,7 @@ func TestManagementToolsAreAdvertised(t *testing.T) {
 func TestViewerCannotCallManagementWriteTool(t *testing.T) {
 	s := &Server{}
 	names := []string{
-		"create_quote", "create_standalone_quote_item", "revise_quote", "accept_quote",
+		"create_quote", "update_quote", "delete_quote", "create_standalone_quote_item", "revise_quote", "accept_quote",
 		"create_project_quote", "create_quote_item", "revise_project_quote", "accept_project_quote",
 		"create_project_role", "create_time_entry", "create_project_receivable",
 		"toggle_project_receivable", "create_project_cost", "toggle_project_cost",

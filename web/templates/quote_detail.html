@@ -24,6 +24,7 @@
     </div>
   </div>
   <form id="quote-data-form" method="post" action="/quotes/{{.Quote.ID}}" class="mgmt-form-grid">
+    <input type="hidden" name="save_as_new_version" value="0">
     <label class="lg-field">
       <span class="lg-field__label">報價編號</span>
       <input class="lg-input" value="{{.Quote.QuoteNo}}" disabled>
@@ -271,13 +272,15 @@
   <span class="mgmt-accepted">✓ 已同意，已建立正式專案</span>
   <a class="lg-btn-primary" href="/projects/{{.Quote.ProjectID}}/management">開啟專案</a>
   {{else}}
-  <form method="post" action="/quotes/{{.Quote.ID}}/revise">
-    <button class="lg-btn-link" type="submit">複製目前報價</button>
-  </form>
   <form method="post" action="/quotes/{{.Quote.ID}}/accept" class="mgmt-accept" onsubmit="return confirm('確認客戶同意？系統會立即建立正式專案。')">
     <input class="lg-input" name="project_name" placeholder="正式專案名稱（可留空）">
     <button class="lg-btn-primary" type="submit">客戶同意並建立專案</button>
   </form>
+  {{if eq .Quote.Status "draft"}}
+  <form method="post" action="/quotes/{{.Quote.ID}}/delete" onsubmit="return confirm('確定刪除此草稿報價單？其項目、規格與附件都會一併刪除。')">
+    <button class="lg-row-action is-danger" type="submit">刪除報價單</button>
+  </form>
+  {{end}}
   {{end}}
 </div>
 
@@ -316,6 +319,10 @@
   syncQuoteType(false);
 
   form.addEventListener("submit", () => {
+    const saveAsNewVersion = form.elements.save_as_new_version;
+    if (saveAsNewVersion) {
+      saveAsNewVersion.value = window.confirm("要建立新的版本號嗎？\n\n按「確定」：建立下一版，原版本會保留。\n按「取消」：直接覆蓋目前版本。") ? "1" : "0";
+    }
     const button = document.getElementById("save-quote-data");
     if (!button) return;
     button.disabled = true;

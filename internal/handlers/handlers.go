@@ -182,6 +182,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /quotes/{id}/attachments", acct(s.quoteAttachmentUpload))
 	mux.Handle("POST /quote-attachments/{id}/delete", acct(s.quoteAttachmentDelete))
 	mux.Handle("POST /quotes/{id}/revise", acct(s.quoteRevise))
+	mux.Handle("POST /quotes/{id}/delete", acct(s.quoteDelete))
 	mux.Handle("POST /quotes/{id}/accept", acct(s.quoteAccept))
 	mux.Handle("POST /projects/{id}/budget", acct(s.projectBudgetSave))
 	mux.Handle("POST /projects/{id}/milestones", acct(s.projectMilestoneCreate))

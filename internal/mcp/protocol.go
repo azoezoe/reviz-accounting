@@ -183,7 +183,7 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 		default:
 			return s.createBudgetPosting(a)
 		}
-	case "create_quote", "create_standalone_quote_item", "revise_quote", "accept_quote", "create_project_quote", "create_quote_item", "revise_project_quote", "accept_project_quote",
+	case "create_quote", "update_quote", "delete_quote", "create_standalone_quote_item", "revise_quote", "accept_quote", "create_project_quote", "create_quote_item", "revise_project_quote", "accept_project_quote",
 		"create_project_role", "create_time_entry", "create_project_receivable",
 		"toggle_project_receivable", "create_project_cost", "toggle_project_cost":
 		if !u.AtLeast(auth.RoleAccountant) {
@@ -209,6 +209,8 @@ func tools() []map[string]any {
 		{"name": "list_quotes", "description": "列出獨立報價提案；提案尚未建立正式專案。viewer 以上。", "inputSchema": obj},
 		{"name": "get_quote", "description": "取得獨立報價與明細。傳 quote_id。viewer 以上。", "inputSchema": req("quote_id")},
 		{"name": "create_quote", "description": "建立獨立報價提案，不會建立專案。傳 title；可選 quote_no、client_name、issuer_name、currency、折扣、稅率與 note。accountant 以上。", "inputSchema": req("title")},
+		{"name": "update_quote", "description": "修改草稿報價。傳 quote_id 與至少一個欲更新欄位；可用 create_new_version=true 另存下一版，否則覆蓋目前版本。可更新 title、client_name、issuer_name、currency、discount_type、discount_value、tax_rate、note、quote_date、valid_until、issuer_contact、issuer_email、issuer_tax_id、project_content、terms、signature_label、quote_language、quote_type、show_unit_price、personal_name、personal_contact、contact_user_id。accountant 以上。", "inputSchema": req("quote_id")},
+		{"name": "delete_quote", "description": "刪除草稿獨立報價及其明細、規格與附件。傳 quote_id。已送出或已同意版本不可刪除。accountant 以上。", "inputSchema": req("quote_id")},
 		{"name": "create_standalone_quote_item", "description": "在草稿報價加入明細。傳 quote_id、description、unit_price_cents；可選 quantity、unit。accountant 以上。", "inputSchema": req("quote_id", "description", "unit_price_cents")},
 		{"name": "revise_quote", "description": "建立獨立報價的下一修訂版。傳 quote_id。accountant 以上。", "inputSchema": req("quote_id")},
 		{"name": "accept_quote", "description": "客戶同意獨立報價後，一鍵建立正式專案與專案總預算。傳 quote_id；可選 project_name。accountant 以上。", "inputSchema": req("quote_id")},
