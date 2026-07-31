@@ -174,8 +174,8 @@
           <td>{{quoteItemNo $index}}</td>
           <td>{{$item.Description}}</td>
           <td>{{$item.Detail}}</td>
-          {{if $.Quote.ShowUnitPrice}}<td class="right">{{printf "%.2f" $item.Quantity}} {{$item.Unit}}</td><td class="right">{{money $item.UnitPriceCents}}</td>{{end}}
-          <td class="right">{{money $item.LineTotalCents}}</td>
+          {{if $.Quote.ShowUnitPrice}}<td class="right">{{quoteQuantity $item.Quantity}} {{$item.Unit}}</td><td class="right">{{quoteMoney $item.UnitPriceCents}}</td>{{end}}
+          <td class="right">{{quoteMoney $item.LineTotalCents}}</td>
           {{if eq $.Quote.Status "draft"}}
           <td class="right">
             <details style="display:inline-block;text-align:left;">
@@ -204,10 +204,10 @@
     </table>
   </div>
   <div class="mgmt-quote-total">
-    <span>小計 {{money .Quote.SubtotalCents}}</span>
-    <span>折扣 −{{money .Quote.DiscountCents}}</span>
-    <span>稅額 {{money .Quote.TaxCents}}</span>
-    <strong>總計 {{money .Quote.TotalCents}} {{.Quote.Currency}}</strong>
+    <span>小計 {{quoteMoney .Quote.SubtotalCents}}</span>
+    <span>折扣 −{{quoteMoney .Quote.DiscountCents}}</span>
+    <span>稅額 {{quoteMoney .Quote.TaxCents}}</span>
+    <strong>總計 {{quoteMoney .Quote.TotalCents}} {{.Quote.Currency}}</strong>
   </div>
   {{if eq .Quote.Status "draft"}}
   <form method="post" action="/quotes/{{.Quote.ID}}/items" class="mgmt-inline-form">

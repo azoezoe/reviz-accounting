@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"math"
 	"net/http"
 	"path"
 	"strconv"
@@ -33,16 +34,23 @@ func NewServer(d *sql.DB, templateFS fs.FS, attachments filestore.Store) (*Serve
 		"money":    money.FormatCentsThousands,
 		"moneyRaw": money.FormatCents,
 		"quoteMoney": func(c int64) string {
-			return strings.TrimSuffix(money.FormatCentsThousands(c), ".00")
+			rounded := c / 100
+			if c >= 0 {
+				rounded = (c + 50) / 100
+			} else {
+				rounded = (c - 50) / 100
+			}
+			return strings.TrimSuffix(money.FormatCentsThousands(rounded*100), ".00")
 		},
-		"dict":        dict,
-		"add":         func(a, b int) int { return a + b },
-		"quoteItemNo": quoteItemDisplayNumber,
-		"sub":         func(a, b int) int { return a - b },
-		"mul":         func(a, b int) int { return a * b },
-		"mod":         func(a, b int) int { return a % b },
-		"addi":        func(a, b int) int { return a + b },
-		"divf":        func(a, b int) float64 { return float64(a) / float64(b) },
+		"quoteQuantity": func(q float64) string { return strconv.FormatInt(int64(math.Round(q)), 10) },
+		"dict":          dict,
+		"add":           func(a, b int) int { return a + b },
+		"quoteItemNo":   quoteItemDisplayNumber,
+		"sub":           func(a, b int) int { return a - b },
+		"mul":           func(a, b int) int { return a * b },
+		"mod":           func(a, b int) int { return a % b },
+		"addi":          func(a, b int) int { return a + b },
+		"divf":          func(a, b int) float64 { return float64(a) / float64(b) },
 		"pct": func(a, b int64) int {
 			if b == 0 {
 				return 0

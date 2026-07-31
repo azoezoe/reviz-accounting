@@ -32,6 +32,16 @@
   padding: 4px 8px 14px;
   border-bottom: 1px solid var(--border-subtle);
 }
+.lg-side__brand-logo {
+  display: block;
+  width: 112px;
+  height: auto;
+}
+.lg-login__brand-logo {
+  display: block;
+  width: 118px;
+  height: auto;
+}
 .lg-side__brand-mark {
   font-family: var(--font-serif-en);
   font-style: italic;

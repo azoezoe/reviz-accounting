@@ -351,7 +351,7 @@
         <td>{{$item.Description}}</td>
         <td>{{$item.Detail}}</td>
         {{if $.Quote.ShowUnitPrice}}
-        <td class="right">{{printf "%.2f" $item.Quantity}} {{$item.Unit}}</td>
+        <td class="right">{{quoteQuantity $item.Quantity}} {{$item.Unit}}</td>
         <td class="right">{{currencySymbol $.Quote.Currency}}{{quoteMoney $item.UnitPriceCents}}</td>
         {{end}}
         <td class="right">{{currencySymbol $.Quote.Currency}}{{quoteMoney $item.LineTotalCents}}</td>
