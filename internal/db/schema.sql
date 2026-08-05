@@ -29,6 +29,15 @@ CREATE TABLE IF NOT EXISTS users (
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text, last_login_at TEXT
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT '';
+-- Project access is deliberately separate from the accounting role. Owners
+-- retain global access; accountants and viewers need an explicit grant.
+CREATE TABLE IF NOT EXISTS project_permissions (
+ project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ access_level TEXT NOT NULL CHECK (access_level IN ('read','write')),
+ PRIMARY KEY(project_id,user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_project_permissions_user ON project_permissions(user_id,project_id);
 CREATE TABLE IF NOT EXISTS transactions (
  id BIGSERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, tx_date TEXT NOT NULL, description TEXT NOT NULL,
  counterparty_id BIGINT REFERENCES counterparties(id) ON DELETE SET NULL, category_id BIGINT REFERENCES categories(id) ON DELETE RESTRICT,
@@ -89,6 +98,7 @@ ALTER TABLE quotes ADD COLUMN IF NOT EXISTS show_unit_price INTEGER NOT NULL DEF
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS personal_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS personal_contact TEXT NOT NULL DEFAULT '';
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS contact_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS created_by_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS detail TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_quote_specifications_quote ON quote_specifications(quote_id);
 ALTER TABLE project_quotes ADD COLUMN IF NOT EXISTS proposal_key TEXT NOT NULL DEFAULT '';

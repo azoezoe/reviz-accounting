@@ -94,7 +94,12 @@ func (s *Server) loadQuote(id int64) (quoteView, error) {
 }
 
 func (s *Server) quotesList(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.DB.Query(`SELECT id FROM quotes ORDER BY id DESC`)
+	query, args := `SELECT id FROM quotes`, []any{}
+	if u := auth.FromContext(r.Context()); u != nil && u.Role != auth.RoleOwner {
+		query += ` WHERE created_by_id=$1`
+		args = append(args, u.ID)
+	}
+	rows, err := s.DB.Query(query+` ORDER BY id DESC`, args...)
 	if err != nil {
 		s.error500(w, err)
 		return
@@ -201,14 +206,19 @@ func (s *Server) quoteCreate(w http.ResponseWriter, r *http.Request) {
 		issuerTaxID = defaultString(issuerTaxID, company.TaxID)
 	}
 	var id int64
-	err := s.DB.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) RETURNING id`,
+	u := auth.FromContext(r.Context())
+	if u == nil {
+		http.Error(w, "未登入", http.StatusUnauthorized)
+		return
+	}
+	err := s.DB.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,created_by_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''),$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING id`,
 		r.FormValue("quote_no"), r.FormValue("title"), r.FormValue("client_name"), issuerName,
 		defaultString(r.FormValue("currency"), "TWD"), defaultString(r.FormValue("discount_type"), "percent"),
 		discount, tax, r.FormValue("note"), defaultString(r.FormValue("quote_date"), time.Now().Format("2006-01-02")),
 		r.FormValue("valid_until"), issuerContact, issuerEmail, issuerTaxID, r.FormValue("project_content"),
 		r.FormValue("terms"), defaultString(r.FormValue("signature_label"), "簽核"),
 		defaultString(r.FormValue("quote_language"), "zh-TW"), quoteType, checkboxInt(r.FormValue("show_unit_price")),
-		r.FormValue("personal_name"), r.FormValue("personal_contact")).Scan(&id)
+		r.FormValue("personal_name"), r.FormValue("personal_contact"), u.ID).Scan(&id)
 	if err != nil {
 		s.error500(w, err)
 		return
@@ -402,7 +412,7 @@ func cloneQuoteVersion(tx *sql.Tx, q quoteView) (int64, error) {
 	}
 	var newID int64
 	quoteNo := fmt.Sprintf("%s-R%d", strings.Split(q.QuoteNo, "-R")[0], q.VersionNo+1)
-	err := tx.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id) SELECT $1,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,$2,id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id FROM quotes WHERE id=$3 RETURNING id`, quoteNo, q.VersionNo+1, q.ID).Scan(&newID)
+	err := tx.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id) SELECT $1,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,$2,id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id FROM quotes WHERE id=$3 RETURNING id`, quoteNo, q.VersionNo+1, q.ID).Scan(&newID)
 	if err != nil {
 		return 0, err
 	}
@@ -479,6 +489,12 @@ func (s *Server) quoteAccept(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == nil {
 		_, err = tx.Exec(`UPDATE quotes SET status='accepted',project_id=$1 WHERE id=$2`, projectID, id)
+	}
+	if err == nil {
+		u := auth.FromContext(r.Context())
+		if u != nil && u.Role != auth.RoleOwner {
+			_, err = tx.Exec(`INSERT INTO project_permissions(project_id,user_id,access_level) VALUES($1,$2,'write')`, projectID, u.ID)
+		}
 	}
 	if err != nil {
 		if tx != nil {

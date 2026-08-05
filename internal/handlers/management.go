@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hcchien/reviz-accounting/internal/auth"
 	"github.com/hcchien/reviz-accounting/internal/models"
 	"github.com/hcchien/reviz-accounting/internal/money"
 )
@@ -42,6 +43,16 @@ func (s *Server) projectManagementPage(w http.ResponseWriter, r *http.Request) {
 		s.error500(w, err)
 		return
 	}
+	permissions, err := models.ListProjectPermissions(s.DB, id)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	users, err := auth.ListUsers(s.DB)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
 	var summary models.ProjectManagementSummary
 	if len(quotes) > 0 {
 		summary.QuoteTotalCents = quotes[0].TotalCents
@@ -65,8 +76,23 @@ func (s *Server) projectManagementPage(w http.ResponseWriter, r *http.Request) {
 		"Title": "專案營運", "Crumbs": []string{"專案", project.Name, "營運"},
 		"Active": "projects", "Project": project, "Quotes": quotes, "Roles": roles,
 		"Entries": entries, "Receivables": receivables, "Costs": costs, "Summary": summary,
+		"Permissions": permissions, "Users": users,
 		"NextQuoteNo": models.NextQuoteNo(s.DB), "Today": time.Now().Format("2006-01-02"),
 	})
+}
+
+func (s *Server) projectPermissionSave(w http.ResponseWriter, r *http.Request) {
+	projectID, userID := parseInt64(r.PathValue("id")), parseInt64(r.FormValue("user_id"))
+	level := r.FormValue("access_level")
+	if userID <= 0 || (level != "read" && level != "write") {
+		http.Error(w, "權限欄位格式錯誤", http.StatusBadRequest)
+		return
+	}
+	if err := models.GrantProjectAccess(s.DB, projectID, userID, level); err != nil {
+		s.error500(w, err)
+		return
+	}
+	http.Redirect(w, r, "/projects/"+r.PathValue("id")+"/management", http.StatusSeeOther)
 }
 
 func (s *Server) projectQuoteCreate(w http.ResponseWriter, r *http.Request) {
