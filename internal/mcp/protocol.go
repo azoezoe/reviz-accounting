@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -87,40 +88,63 @@ type fmtErr string
 
 func (e fmtErr) Error() string { return string(e) }
 func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) {
-	// Project-scoped authorization is enforced by the Web app. Until each MCP
-	// tool has the equivalent project context, only owners may use MCP so it
-	// cannot bypass those checks.
-	if u == nil || u.Role != auth.RoleOwner {
+	if u == nil {
 		return nil, fmtErr("權限不足")
 	}
 	switch name {
 	case "list_accounts":
+		if u.Role != auth.RoleOwner {
+			return nil, fmtErr("權限不足")
+		}
 		v, e := models.ListAccounts(s.DB, true)
 		return content(v, e)
 	case "list_categories":
+		if u.Role != auth.RoleOwner {
+			return nil, fmtErr("權限不足")
+		}
 		v, e := models.ListCategories(s.DB)
 		return content(v, e)
 	case "list_projects":
 		v, e := models.ListProjects(s.DB)
+		if e == nil && u.Role != auth.RoleOwner {
+			v = mcpAccessibleProjects(s, u, v)
+		}
 		return content(v, e)
 	case "create_project":
 		if !u.AtLeast(auth.RoleAccountant) {
 			return nil, fmtErr("權限不足")
 		}
-		return s.createProject(a)
+		return s.createProjectForUser(u, a)
 	case "update_project":
 		if !u.AtLeast(auth.RoleAccountant) {
 			return nil, fmtErr("權限不足")
 		}
+		if err := s.requireProject(u, numID(a, "project_id"), true); err != nil {
+			return nil, err
+		}
 		return s.updateProject(a)
 	case "get_project_budget":
+		if err := s.requireProject(u, numID(a, "project_id"), false); err != nil {
+			return nil, err
+		}
 		return s.projectBudget(numID(a, "project_id"))
 	case "list_project_transactions":
+		if err := s.requireProject(u, numID(a, "project_id"), false); err != nil {
+			return nil, err
+		}
 		return s.projectTransactions(numID(a, "project_id"))
 	case "get_project_management":
+		if err := s.requireProject(u, numID(a, "project_id"), false); err != nil {
+			return nil, err
+		}
 		return s.projectManagement(numID(a, "project_id"))
 	case "list_quotes":
-		rows, e := s.DB.Query(`SELECT id FROM quotes ORDER BY id DESC`)
+		query, args := `SELECT id FROM quotes`, []any{}
+		if u.Role != auth.RoleOwner {
+			query += ` WHERE created_by_id=?`
+			args = append(args, u.ID)
+		}
+		rows, e := s.DB.Query(query+` ORDER BY id DESC`, args...)
 		if e != nil {
 			return nil, e
 		}
@@ -139,12 +163,18 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 		}
 		return content(quotes, rows.Err())
 	case "get_quote":
+		if err := s.requireQuote(u, numID(a, "quote_id")); err != nil {
+			return nil, err
+		}
 		q, e := s.standaloneQuote(numID(a, "quote_id"))
 		return content(q, e)
 	case "list_transactions":
 		f := models.TxFilter{YearMonth: str(a, "year_month"), SearchText: str(a, "search"), Limit: asInt(num(a, "limit"))}
 		if f.Limit == 0 {
 			f.Limit = 50
+		}
+		if u.Role != auth.RoleOwner {
+			f.ProjectUserID = u.ID
 		}
 		v, n, e := models.ListTransactions(s.DB, f)
 		if e != nil {
@@ -155,9 +185,17 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 		if !u.AtLeast(auth.RoleAccountant) {
 			return nil, fmtErr("權限不足")
 		}
+		if name == "update_transaction" {
+			if err := s.requireTransaction(u, int64(num(a, "id")), true); err != nil {
+				return nil, err
+			}
+		}
 		t, e := s.tx(a)
 		if e != nil {
 			return nil, e
+		}
+		if err := s.requireTransactionProject(u, t.ProjectID, true); err != nil {
+			return nil, err
 		}
 		if name == "create_transaction" {
 			t.Code, e = models.GenerateCode(s.DB)
@@ -176,10 +214,25 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 		if !u.AtLeast(auth.RoleAccountant) {
 			return nil, fmtErr("權限不足")
 		}
+		if err := s.requireTransaction(u, int64(num(a, "transaction_id")), true); err != nil {
+			return nil, err
+		}
 		return s.uploadReceipt(u, a)
 	case "save_project_budget", "create_budget_allocation", "create_budget_posting":
 		if !u.AtLeast(auth.RoleAccountant) {
 			return nil, fmtErr("權限不足")
+		}
+		projectID := numID(a, "project_id")
+		if name == "create_budget_posting" {
+			if err := s.requireTransaction(u, int64(num(a, "transaction_id")), true); err != nil {
+				return nil, err
+			}
+		}
+		if name == "create_budget_posting" && projectID == 0 {
+			_ = s.DB.QueryRow(`SELECT pba.project_id FROM project_budget_allocations pba WHERE pba.id=?`, numID(a, "budget_allocation_id")).Scan(&projectID)
+		}
+		if err := s.requireProject(u, projectID, true); err != nil {
+			return nil, err
 		}
 		switch name {
 		case "save_project_budget":
@@ -195,7 +248,10 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 		if !u.AtLeast(auth.RoleAccountant) {
 			return nil, fmtErr("權限不足")
 		}
-		return s.projectManagementWrite(name, a)
+		if err := s.requireManagementWrite(u, name, a); err != nil {
+			return nil, err
+		}
+		return s.projectManagementWriteForUser(u, name, a)
 	}
 	return nil, fmtErr("unknown tool")
 }
@@ -294,7 +350,89 @@ func (s *Server) uploadReceipt(u *auth.User, a map[string]any) (any, error) {
 	return content(map[string]any{"attachment_id": id, "transaction_id": txID, "filename": filename, "size_bytes": len(b)}, nil)
 }
 
-func (s *Server) createProject(a map[string]any) (any, error) {
+func (s *Server) requireProject(u *auth.User, projectID int64, write bool) error {
+	if projectID <= 0 {
+		return fmtErr("project_id 必填")
+	}
+	if u.Role == auth.RoleOwner {
+		return nil
+	}
+	ok, err := models.CanAccessProject(s.DB, projectID, u.ID, write)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmtErr("權限不足")
+	}
+	return nil
+}
+
+func (s *Server) requireQuote(u *auth.User, quoteID int64) error {
+	if quoteID <= 0 {
+		return fmtErr("quote_id 必填")
+	}
+	if u.Role == auth.RoleOwner {
+		return nil
+	}
+	var ok bool
+	if err := s.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM quotes WHERE id=? AND created_by_id=?)`, quoteID, u.ID).Scan(&ok); err != nil {
+		return err
+	}
+	if !ok {
+		return fmtErr("權限不足")
+	}
+	return nil
+}
+
+func (s *Server) requireTransaction(u *auth.User, transactionID int64, write bool) error {
+	if transactionID <= 0 {
+		return fmtErr("transaction_id 必填")
+	}
+	if u.Role == auth.RoleOwner {
+		return nil
+	}
+	ok, err := models.CanAccessTransaction(s.DB, transactionID, u.ID, write)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmtErr("權限不足")
+	}
+	return nil
+}
+
+func (s *Server) requireTransactionProject(u *auth.User, projectID sql.NullInt64, write bool) error {
+	if u.Role == auth.RoleOwner {
+		return nil
+	}
+	if !projectID.Valid {
+		return fmtErr("accountant 必須將交易歸屬於有權限的專案")
+	}
+	return s.requireProject(u, projectID.Int64, write)
+}
+
+func (s *Server) requireManagementWrite(u *auth.User, name string, a map[string]any) error {
+	switch name {
+	case "create_quote":
+		return nil
+	case "update_quote", "delete_quote", "create_standalone_quote_item", "update_standalone_quote_item", "delete_standalone_quote_item", "revise_quote", "accept_quote":
+		return s.requireQuote(u, numID(a, "quote_id"))
+	default:
+		return s.requireProject(u, numID(a, "project_id"), true)
+	}
+}
+
+func mcpAccessibleProjects(s *Server, u *auth.User, projects []models.Project) []models.Project {
+	out := projects[:0]
+	for _, p := range projects {
+		if ok, _ := models.CanAccessProject(s.DB, p.ID, u.ID, false); ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (s *Server) createProjectForUser(u *auth.User, a map[string]any) (any, error) {
 	name := strings.TrimSpace(str(a, "name"))
 	if name == "" {
 		return nil, fmtErr("name 必填")
@@ -307,6 +445,11 @@ func (s *Server) createProject(a map[string]any) (any, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if u.Role != auth.RoleOwner {
+		if err := models.GrantProjectAccess(s.DB, id, u.ID, "write"); err != nil {
+			return nil, err
+		}
 	}
 	return content(map[string]any{"id": id, "name": name}, nil)
 }

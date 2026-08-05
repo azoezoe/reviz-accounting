@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hcchien/reviz-accounting/internal/auth"
 	"github.com/hcchien/reviz-accounting/internal/models"
 )
 
@@ -48,10 +49,10 @@ func (s *Server) projectManagement(projectID int64) (any, error) {
 	}, nil)
 }
 
-func (s *Server) projectManagementWrite(name string, a map[string]any) (any, error) {
+func (s *Server) projectManagementWriteForUser(u *auth.User, name string, a map[string]any) (any, error) {
 	switch name {
 	case "create_quote":
-		return s.createStandaloneQuote(a)
+		return s.createStandaloneQuote(u, a)
 	case "update_quote":
 		return s.updateStandaloneQuote(a)
 	case "delete_quote":
@@ -65,7 +66,7 @@ func (s *Server) projectManagementWrite(name string, a map[string]any) (any, err
 	case "revise_quote":
 		return s.reviseStandaloneQuote(a)
 	case "accept_quote":
-		return s.acceptStandaloneQuote(a)
+		return s.acceptStandaloneQuote(u, a)
 	case "create_project_quote":
 		return s.createProjectQuote(a)
 	case "create_quote_item":
@@ -75,6 +76,9 @@ func (s *Server) projectManagementWrite(name string, a map[string]any) (any, err
 		return content(map[string]any{"quote_id": id, "version_created": true}, err)
 	case "accept_project_quote":
 		id, err := models.AcceptQuoteAndCreateProject(s.DB, numID(a, "quote_id"), numID(a, "project_id"), str(a, "project_name"))
+		if err == nil && u.Role != auth.RoleOwner {
+			err = models.GrantProjectAccess(s.DB, id, u.ID, "write")
+		}
 		return content(map[string]any{"execution_project_id": id, "quote_accepted": true, "budget_allocated": true}, err)
 	case "create_project_role":
 		return s.createProjectRole(a)
@@ -136,7 +140,7 @@ func (s *Server) standaloneQuote(id int64) (map[string]any, error) {
 	return map[string]any{"id": q.ID, "quote_no": q.QuoteNo, "title": q.Title, "client_name": q.Client, "issuer_name": q.Issuer, "currency": q.Currency, "status": q.Status, "version_no": q.Version, "project_id": q.ProjectID, "subtotal_cents": subtotal, "discount_cents": discount, "tax_cents": tax, "total_cents": taxable + tax, "items": items}, nil
 }
 
-func (s *Server) createStandaloneQuote(a map[string]any) (any, error) {
+func (s *Server) createStandaloneQuote(u *auth.User, a map[string]any) (any, error) {
 	no := strings.TrimSpace(str(a, "quote_no"))
 	if no == "" {
 		var n int
@@ -155,7 +159,7 @@ func (s *Server) createStandaloneQuote(a map[string]any) (any, error) {
 		tax = 5
 	}
 	var id int64
-	err := s.DB.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, no, str(a, "title"), str(a, "client_name"), str(a, "issuer_name"), defaultText(str(a, "currency"), "TWD"), discountType, num(a, "discount_value"), tax, str(a, "note")).Scan(&id)
+	err := s.DB.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,created_by_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`, no, str(a, "title"), str(a, "client_name"), str(a, "issuer_name"), defaultText(str(a, "currency"), "TWD"), discountType, num(a, "discount_value"), tax, str(a, "note"), u.ID).Scan(&id)
 	return content(map[string]any{"quote_id": id, "quote_no": no}, err)
 }
 
@@ -259,7 +263,7 @@ func (s *Server) cloneStandaloneQuoteVersion(id int64) (int64, error) {
 	}
 	var newID int64
 	newNo := fmt.Sprintf("%s-R%d", strings.Split(quoteNo, "-R")[0], version+1)
-	err = tx.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id) SELECT ?,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,?,id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id FROM quotes WHERE id=? RETURNING id`, newNo, version+1, id).Scan(&newID)
+	err = tx.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id) SELECT ?,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,?,id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id FROM quotes WHERE id=? RETURNING id`, newNo, version+1, id).Scan(&newID)
 	if err == nil {
 		_, err = tx.Exec(`INSERT INTO quote_items(quote_id,description,detail,quantity,unit,unit_price_cents,sort_order) SELECT ?,description,detail,quantity,unit,unit_price_cents,sort_order FROM quote_items WHERE quote_id=?`, newID, id)
 	}
@@ -413,7 +417,7 @@ func (s *Server) reviseStandaloneQuote(a map[string]any) (any, error) {
 	newID, err := s.cloneStandaloneQuoteVersion(id)
 	return content(map[string]any{"quote_id": newID, "version_created": true}, err)
 }
-func (s *Server) acceptStandaloneQuote(a map[string]any) (any, error) {
+func (s *Server) acceptStandaloneQuote(u *auth.User, a map[string]any) (any, error) {
 	id := numID(a, "quote_id")
 	q, err := s.standaloneQuote(id)
 	if err != nil {
@@ -440,6 +444,9 @@ func (s *Server) acceptStandaloneQuote(a map[string]any) (any, error) {
 	}
 	if err == nil {
 		_, err = tx.Exec(`UPDATE quotes SET status='accepted',project_id=$1 WHERE id=$2`, pid, id)
+	}
+	if err == nil && u.Role != auth.RoleOwner {
+		_, err = tx.Exec(`INSERT INTO project_permissions(project_id,user_id,access_level) VALUES($1,$2,'write')`, pid, u.ID)
 	}
 	if err != nil {
 		return nil, err
