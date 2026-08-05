@@ -29,8 +29,6 @@ CREATE TABLE IF NOT EXISTS users (
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text, last_login_at TEXT
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT '';
--- Project access is deliberately separate from the accounting role. Owners
--- retain global access; accountants and viewers need an explicit grant.
 CREATE TABLE IF NOT EXISTS project_permissions (
  project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
