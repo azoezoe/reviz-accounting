@@ -95,6 +95,19 @@ func (s *Server) projectPermissionSave(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/projects/"+r.PathValue("id")+"/management", http.StatusSeeOther)
 }
 
+func (s *Server) projectPermissionDelete(w http.ResponseWriter, r *http.Request) {
+	projectID, userID := parseInt64(r.PathValue("id")), parseInt64(r.PathValue("userID"))
+	if userID <= 0 {
+		http.Error(w, "使用者不存在", http.StatusBadRequest)
+		return
+	}
+	if err := models.RevokeProjectAccess(s.DB, projectID, userID); err != nil {
+		s.error500(w, err)
+		return
+	}
+	http.Redirect(w, r, "/projects/"+r.PathValue("id")+"/management#permissions", http.StatusSeeOther)
+}
+
 func (s *Server) projectQuoteCreate(w http.ResponseWriter, r *http.Request) {
 	pid := parseInt64(r.PathValue("id"))
 	discount, err := strconv.ParseFloat(zeroIfEmpty(r.FormValue("discount_value")), 64)

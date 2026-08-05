@@ -19,7 +19,19 @@
     <label class="lg-field"><span class="lg-field__label">權限</span><select class="lg-select" name="access_level"><option value="read">read</option><option value="write">write</option></select></label>
     <button class="lg-btn-primary">儲存權限</button>
   </form>
-  {{range .Permissions}}<p style="margin:10px 0 0;font-size:13px;">{{if .FullName}}{{.FullName}} · {{end}}{{.Username}}：<strong>{{.AccessLevel}}</strong></p>{{else}}<p class="lg-panel__sub" style="margin:10px 0 0;">尚未指派其他成員。</p>{{end}}
+  <div style="display:grid;gap:8px;margin-top:12px;">
+  {{range .Permissions}}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;">
+      <span style="min-width:180px;">{{if .FullName}}{{.FullName}} · {{end}}{{.Username}}</span>
+      <form method="post" action="/projects/{{$.Project.ID}}/permissions" style="display:flex;gap:6px;align-items:center;">
+        <input type="hidden" name="user_id" value="{{.UserID}}">
+        <select class="lg-select" name="access_level" aria-label="{{.Username}} 的權限"><option value="read" {{if eq .AccessLevel "read"}}selected{{end}}>read</option><option value="write" {{if eq .AccessLevel "write"}}selected{{end}}>write</option></select>
+        <button class="lg-btn-link" type="submit">更新</button>
+      </form>
+      <form method="post" action="/projects/{{$.Project.ID}}/permissions/{{.UserID}}/delete" onsubmit="return confirm('移除 {{.Username}} 的此專案權限？')"><button class="lg-btn-link" type="submit" style="color:var(--danger-700);">移除</button></form>
+    </div>
+  {{else}}<p class="lg-panel__sub" style="margin:0;">尚未指派其他成員。</p>{{end}}
+  </div>
 </section>
 {{end}}
 

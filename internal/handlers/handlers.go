@@ -241,6 +241,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /users/{id}", owner(s.userUpdate))
 	mux.Handle("POST /users/{id}/delete", owner(s.userDelete))
 	mux.Handle("POST /projects/{id}/permissions", owner(s.projectPermissionSave))
+	mux.Handle("POST /projects/{id}/permissions/{userID}/delete", owner(s.projectPermissionDelete))
 }
 
 // render writes a template inside the common chrome (header + nav).

@@ -26,6 +26,11 @@ func GrantProjectAccess(d *sql.DB, projectID, userID int64, level string) error 
 	return err
 }
 
+func RevokeProjectAccess(d *sql.DB, projectID, userID int64) error {
+	_, err := d.Exec(`DELETE FROM project_permissions WHERE project_id=$1 AND user_id=$2`, projectID, userID)
+	return err
+}
+
 func ListProjectPermissions(d *sql.DB, projectID int64) ([]ProjectPermission, error) {
 	rows, err := d.Query(`SELECT u.id,u.username,u.full_name,p.access_level FROM project_permissions p JOIN users u ON u.id=p.user_id WHERE p.project_id=$1 ORDER BY u.username`, projectID)
 	if err != nil {
