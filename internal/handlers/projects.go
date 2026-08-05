@@ -92,6 +92,10 @@ func (s *Server) projectBudgetPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "找不到專案", http.StatusNotFound)
 		return
 	}
+	canWrite := true
+	if u := auth.FromContext(r.Context()); u != nil && u.Role != auth.RoleOwner {
+		canWrite, _ = models.CanAccessProject(s.DB, id, u.ID, true)
+	}
 	b, err := models.GetProjectBudget(s.DB, id)
 	if err != nil {
 		s.error500(w, err)
@@ -160,7 +164,7 @@ func (s *Server) projectBudgetPage(w http.ResponseWriter, r *http.Request) {
 		views = append(views, allocationView{BudgetAllocation: a, ActualPaid: report.PaidByAllocation[a.ID], Accrued: accrued})
 	}
 	cps, _ := models.ListCounterparties(s.DB, "")
-	s.render(w, r, "project_budget.html", map[string]any{"Title": "專案預算", "Crumbs": []string{"專案", p.Name, "預算"}, "Project": p, "Budget": b, "Allocations": views, "ProjectTransactions": txViews, "JournalAllocationFilter": filterID, "Counterparties": cps, "ActualIncome": report.IncomeCents, "PlannedTotal": plannedTotal, "PlannedCompany": plannedCompany, "Active": "projects"})
+	s.render(w, r, "project_budget.html", map[string]any{"Title": "專案預算", "Crumbs": []string{"專案", p.Name, "預算"}, "Project": p, "Budget": b, "Allocations": views, "ProjectTransactions": txViews, "JournalAllocationFilter": filterID, "Counterparties": cps, "ActualIncome": report.IncomeCents, "PlannedTotal": plannedTotal, "PlannedCompany": plannedCompany, "CanWrite": canWrite, "Active": "projects"})
 }
 
 func (s *Server) projectBudgetSave(w http.ResponseWriter, r *http.Request) {

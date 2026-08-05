@@ -170,15 +170,24 @@ func (s *Server) journalNew(w http.ResponseWriter, r *http.Request) {
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
-	projs = s.accessibleProjects(r, projs)
+	projs = s.writableProjects(r, projs)
 	counterparties, _ := models.ListCounterparties(s.DB, "")
 	today := time.Now().Format("2006-01-02")
 
+	tx := &models.Transaction{Date: today}
+	if requested := parseInt64(r.URL.Query().Get("project_id")); requested > 0 {
+		for _, p := range projs {
+			if p.ID == requested {
+				tx.ProjectID = models.NullInt64From(requested)
+				break
+			}
+		}
+	}
 	s.render(w, r, "journal_form.html", map[string]any{
 		"Title":          "新增交易",
 		"Crumbs":         []string{"日記帳", "新增交易"},
 		"Mode":           "new",
-		"Tx":             &models.Transaction{Date: today},
+		"Tx":             tx,
 		"Categories":     cats,
 		"Accounts":       accs,
 		"Projects":       projs,
@@ -211,11 +220,25 @@ func (s *Server) accessibleProjects(r *http.Request, all []models.Project) []mod
 	return out
 }
 
+func (s *Server) writableProjects(r *http.Request, all []models.Project) []models.Project {
+	u := auth.FromContext(r.Context())
+	if u == nil || u.Role == auth.RoleOwner {
+		return all
+	}
+	out := all[:0]
+	for _, p := range all {
+		if ok, _ := models.CanAccessProject(s.DB, p.ID, u.ID, true); ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func (s *Server) renderJournalEdit(w http.ResponseWriter, r *http.Request, t *models.Transaction, postingForm *budgetPostingForm) {
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
-	projs = s.accessibleProjects(r, projs)
+	projs = s.writableProjects(r, projs)
 	counterparties, _ := models.ListCounterparties(s.DB, "")
 	attachments, _ := models.ListAttachments(s.DB, t.ID)
 	postings, _ := models.ListBudgetPostings(s.DB, t.ID)

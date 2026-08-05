@@ -35,8 +35,8 @@
       </div>
       <div class="lg-field">
         <label class="lg-field__label">主要專案（可留空）</label>
-        <select class="lg-select" name="project_id">
-          <option value="">— 無 —</option>
+        <select class="lg-select" name="project_id" {{if ne .CurrentUser.Role "owner"}}required{{end}}>
+          {{if eq .CurrentUser.Role "owner"}}<option value="">— 無 —</option>{{else}}<option value="" disabled selected>— 請選擇可寫入專案 —</option>{{end}}
           {{$pid := $tx.ProjectID.Int64}}
           {{range .Projects}}<option value="{{.ID}}" {{if eq .ID $pid}}selected{{end}}>{{.Name}}</option>{{end}}
         </select>
