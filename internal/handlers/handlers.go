@@ -125,6 +125,9 @@ func NewServer(d *sql.DB, templateFS fs.FS, attachments filestore.Store) (*Serve
 //   - owner only        : /users and POST /users/* (user management)
 func (s *Server) Routes(mux *http.ServeMux) {
 	mcpServer := &mcp.Server{DB: s.DB, Attachments: s.Attachments}
+	owner := func(h http.HandlerFunc) http.Handler {
+		return auth.RequireRole(auth.RoleOwner, http.HandlerFunc(h))
+	}
 	mux.Handle("GET /.well-known/oauth-authorization-server", http.HandlerFunc(mcpServer.Metadata))
 	mux.Handle("GET /.well-known/oauth-protected-resource", http.HandlerFunc(mcpServer.ProtectedResource))
 	mux.Handle("POST /oauth/register", http.HandlerFunc(mcpServer.Register))
@@ -140,15 +143,17 @@ func (s *Server) Routes(mux *http.ServeMux) {
 
 	// any authenticated user (viewer+)
 	view := func(h http.HandlerFunc) http.Handler { return auth.RequireAuth(http.HandlerFunc(h)) }
-	mux.Handle("GET /{$}", view(s.dashboard))
-	mux.Handle("GET /dashboard", view(s.dashboard))
+	mux.Handle("GET /{$}", owner(s.dashboard))
+	mux.Handle("GET /dashboard", owner(s.dashboard))
 	mux.Handle("GET /journal", view(s.journalList))
 	mux.Handle("GET /journal/new", view(s.journalNew))
-	mux.Handle("GET /journal/{id}/edit", view(s.journalEdit))
+	mux.Handle("GET /journal/{id}/edit", view(func(w http.ResponseWriter, r *http.Request) {
+		s.requireTransactionAccess(false, s.journalEdit).ServeHTTP(w, r)
+	}))
 	mux.Handle("GET /attachments/{id}", view(s.attachmentDownload))
 	mux.Handle("GET /quote-attachments/{id}", view(s.quoteAttachmentDownload))
-	mux.Handle("GET /accounts", view(s.accountsList))
-	mux.Handle("GET /categories", view(s.categoriesList))
+	mux.Handle("GET /accounts", owner(s.accountsList))
+	mux.Handle("GET /categories", owner(s.categoriesList))
 	mux.Handle("GET /projects", view(s.projectsList))
 	mux.Handle("GET /quotes", view(s.quotesList))
 	mux.Handle("GET /quotes/{id}", view(func(w http.ResponseWriter, r *http.Request) { s.requireQuoteAccess(s.quoteDetail).ServeHTTP(w, r) }))
@@ -156,12 +161,12 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /projects/{id}/budget", view(func(w http.ResponseWriter, r *http.Request) { s.projectRead(s.projectBudgetPage).ServeHTTP(w, r) }))
 	mux.Handle("GET /projects/{id}/management", view(func(w http.ResponseWriter, r *http.Request) { s.projectRead(s.projectManagementPage).ServeHTTP(w, r) }))
 	mux.Handle("GET /projects/{id}/summary", view(func(w http.ResponseWriter, r *http.Request) { s.projectRead(s.projectSummary).ServeHTTP(w, r) }))
-	mux.Handle("GET /counterparties", view(s.counterpartiesList))
-	mux.Handle("GET /pnl", view(s.pnl))
-	mux.Handle("GET /settings", view(s.settingsPage))
-	mux.Handle("GET /export/transactions.csv", view(s.exportCSV))
-	mux.Handle("GET /export/monthly.xlsx", view(s.exportMonthlyXLSX))
-	mux.Handle("GET /import", view(s.importPage))
+	mux.Handle("GET /counterparties", owner(s.counterpartiesList))
+	mux.Handle("GET /pnl", owner(s.pnl))
+	mux.Handle("GET /settings", owner(s.settingsPage))
+	mux.Handle("GET /export/transactions.csv", owner(s.exportCSV))
+	mux.Handle("GET /export/monthly.xlsx", owner(s.exportMonthlyXLSX))
+	mux.Handle("GET /import", owner(s.importPage))
 	mux.Handle("GET /profile/password", view(s.passwordPage))
 	mux.Handle("POST /profile/password", view(s.passwordUpdate))
 
@@ -170,18 +175,21 @@ func (s *Server) Routes(mux *http.ServeMux) {
 		return auth.RequireRole(auth.RoleAccountant, http.HandlerFunc(h))
 	}
 	mux.Handle("POST /journal", acct(s.journalCreate))
-	mux.Handle("POST /journal/{id}", acct(s.journalUpdate))
-	mux.Handle("POST /journal/{id}/delete", acct(s.journalDelete))
-	mux.Handle("POST /journal/{id}/attachments", acct(s.attachmentUpload))
-	mux.Handle("POST /journal/{id}/budget-postings", acct(s.journalBudgetPostingCreate))
-	mux.Handle("POST /journal/{id}/budget-postings/{postingID}/delete", acct(s.journalBudgetPostingDelete))
+	journalPost := func(h http.HandlerFunc) http.Handler {
+		return acct(func(w http.ResponseWriter, r *http.Request) { s.requireTransactionAccess(true, h).ServeHTTP(w, r) })
+	}
+	mux.Handle("POST /journal/{id}", journalPost(s.journalUpdate))
+	mux.Handle("POST /journal/{id}/delete", journalPost(s.journalDelete))
+	mux.Handle("POST /journal/{id}/attachments", journalPost(s.attachmentUpload))
+	mux.Handle("POST /journal/{id}/budget-postings", journalPost(s.journalBudgetPostingCreate))
+	mux.Handle("POST /journal/{id}/budget-postings/{postingID}/delete", journalPost(s.journalBudgetPostingDelete))
 	mux.Handle("POST /attachments/{id}/delete", acct(s.attachmentDelete))
-	mux.Handle("POST /accounts", acct(s.accountCreate))
-	mux.Handle("POST /accounts/{id}", acct(s.accountUpdate))
-	mux.Handle("POST /accounts/{id}/delete", acct(s.accountDelete))
-	mux.Handle("POST /categories", acct(s.categoryCreate))
-	mux.Handle("POST /categories/{id}", acct(s.categoryUpdate))
-	mux.Handle("POST /categories/{id}/delete", acct(s.categoryDelete))
+	mux.Handle("POST /accounts", owner(s.accountCreate))
+	mux.Handle("POST /accounts/{id}", owner(s.accountUpdate))
+	mux.Handle("POST /accounts/{id}/delete", owner(s.accountDelete))
+	mux.Handle("POST /categories", owner(s.categoryCreate))
+	mux.Handle("POST /categories/{id}", owner(s.categoryUpdate))
+	mux.Handle("POST /categories/{id}/delete", owner(s.categoryDelete))
 	mux.Handle("POST /projects", acct(s.projectCreate))
 	mux.Handle("POST /quotes", acct(s.quoteCreate))
 	quotePost := func(h http.HandlerFunc) http.Handler {
@@ -221,16 +229,13 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /projects/{id}/costs", projectPost(s.projectCostCreate))
 	mux.Handle("POST /projects/{id}/costs/{costID}/toggle", projectPost(s.projectCostToggle))
 	mux.Handle("POST /projects/{id}/costs/{costID}/delete", projectPost(s.projectCostDelete))
-	mux.Handle("POST /counterparties", acct(s.counterpartyCreate))
-	mux.Handle("POST /counterparties/{id}", acct(s.counterpartyUpdate))
-	mux.Handle("POST /counterparties/{id}/delete", acct(s.counterpartyDelete))
-	mux.Handle("POST /settings", acct(s.settingsSave))
-	mux.Handle("POST /import", acct(s.importCSV))
+	mux.Handle("POST /counterparties", owner(s.counterpartyCreate))
+	mux.Handle("POST /counterparties/{id}", owner(s.counterpartyUpdate))
+	mux.Handle("POST /counterparties/{id}/delete", owner(s.counterpartyDelete))
+	mux.Handle("POST /settings", owner(s.settingsSave))
+	mux.Handle("POST /import", owner(s.importCSV))
 
 	// owner only
-	owner := func(h http.HandlerFunc) http.Handler {
-		return auth.RequireRole(auth.RoleOwner, http.HandlerFunc(h))
-	}
 	mux.Handle("GET /users", owner(s.usersList))
 	mux.Handle("POST /users", owner(s.userCreate))
 	mux.Handle("POST /users/{id}", owner(s.userUpdate))

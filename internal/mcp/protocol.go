@@ -87,6 +87,12 @@ type fmtErr string
 
 func (e fmtErr) Error() string { return string(e) }
 func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) {
+	// Project-scoped authorization is enforced by the Web app. Until each MCP
+	// tool has the equivalent project context, only owners may use MCP so it
+	// cannot bypass those checks.
+	if u == nil || u.Role != auth.RoleOwner {
+		return nil, fmtErr("權限不足")
+	}
 	switch name {
 	case "list_accounts":
 		v, e := models.ListAccounts(s.DB, true)

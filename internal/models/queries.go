@@ -324,6 +324,9 @@ type TxFilter struct {
 	SearchText                string
 	Limit                     int
 	Offset                    int
+	// ProjectUserID limits results to transactions related to projects that
+	// have been granted to this user (directly or through a budget allocation).
+	ProjectUserID int64
 }
 
 func ListTransactions(d *sql.DB, f TxFilter) ([]Transaction, int, error) {
@@ -345,6 +348,10 @@ func ListTransactions(d *sql.DB, f TxFilter) ([]Transaction, int, error) {
 	if f.ProjectID > 0 {
 		where = append(where, `(t.project_id=? OR EXISTS (SELECT 1 FROM transaction_budget_allocations bpa JOIN project_budget_allocations pba ON pba.id=bpa.budget_allocation_id WHERE bpa.transaction_id=t.id AND pba.project_id=?))`)
 		args = append(args, f.ProjectID, f.ProjectID)
+	}
+	if f.ProjectUserID > 0 {
+		where = append(where, `(EXISTS (SELECT 1 FROM project_permissions pp WHERE pp.project_id=t.project_id AND pp.user_id=? ) OR EXISTS (SELECT 1 FROM transaction_budget_allocations bpa JOIN project_budget_allocations pba ON pba.id=bpa.budget_allocation_id JOIN project_permissions pp ON pp.project_id=pba.project_id WHERE bpa.transaction_id=t.id AND pp.user_id=?))`)
+		args = append(args, f.ProjectUserID, f.ProjectUserID)
 	}
 	if f.BudgetAllocationID > 0 {
 		where = append(where, `EXISTS (SELECT 1 FROM transaction_budget_allocations bpa WHERE bpa.transaction_id=t.id AND bpa.budget_allocation_id=?)`)
@@ -409,6 +416,18 @@ func ListTransactions(d *sql.DB, f TxFilter) ([]Transaction, int, error) {
 		out = append(out, t)
 	}
 	return out, total, rows.Err()
+}
+
+func CanAccessTransaction(d *sql.DB, transactionID, userID int64, write bool) (bool, error) {
+	level := ""
+	if write {
+		level = ` AND pp.access_level='write'`
+	}
+	var ok bool
+	err := d.QueryRow(`SELECT EXISTS(
+		SELECT 1 FROM transactions t LEFT JOIN project_permissions pp ON pp.project_id=t.project_id AND pp.user_id=$2
+		WHERE t.id=$1 AND (pp.user_id IS NOT NULL`+level+` OR EXISTS (SELECT 1 FROM transaction_budget_allocations bpa JOIN project_budget_allocations pba ON pba.id=bpa.budget_allocation_id JOIN project_permissions ap ON ap.project_id=pba.project_id AND ap.user_id=$2 WHERE bpa.transaction_id=t.id`+strings.Replace(level, "pp.", "ap.", 1)+`)))`, transactionID, userID).Scan(&ok)
+	return ok, err
 }
 
 func GetTransaction(d *sql.DB, id int64) (*Transaction, error) {

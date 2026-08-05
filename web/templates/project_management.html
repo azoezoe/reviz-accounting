@@ -12,7 +12,7 @@
 </div>
 
 {{if eq .CurrentUser.Role "owner"}}
-<section class="lg-panel" style="margin-bottom:18px;">
+<section class="lg-panel" id="permissions" style="margin-bottom:18px;">
   <div class="lg-panel__head"><div><h3 class="lg-panel__title">專案存取權</h3><p class="lg-panel__sub">owner 永遠擁有完整權限；在此指派其他成員。</p></div></div>
   <form method="post" action="/projects/{{.Project.ID}}/permissions" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
     <label class="lg-field"><span class="lg-field__label">成員</span><select class="lg-select" name="user_id" required>{{range .Users}}{{if and .Active (ne .Role "owner")}}<option value="{{.ID}}">{{if .FullName}}{{.FullName}} · {{end}}{{.Username}}</option>{{end}}{{end}}</select></label>

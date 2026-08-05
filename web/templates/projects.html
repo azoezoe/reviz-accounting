@@ -63,6 +63,7 @@
     <div style="display:flex;gap:12px;margin-top:12px;">
       <a href="/projects/{{.ID}}/management" class="lg-btn-link" style="color:var(--text-brand);">營運管理 →</a>
       <a href="/projects/{{.ID}}/budget" class="lg-btn-link">預算與帳務 →</a>
+      {{if eq $.CurrentUser.Role "owner"}}<a href="/projects/{{.ID}}/management#permissions" class="lg-btn-link">成員權限 →</a>{{end}}
     </div>
   </div>
   {{else}}

@@ -62,3 +62,23 @@ func (s *Server) requireQuoteAccess(next http.HandlerFunc) http.Handler {
 		next(w, r)
 	})
 }
+
+func (s *Server) requireTransactionAccess(write bool, next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u := auth.FromContext(r.Context())
+		if u == nil || u.Role == auth.RoleOwner {
+			next(w, r)
+			return
+		}
+		ok, err := models.CanAccessTransaction(s.DB, parseInt64(r.PathValue("id")), u.ID, write)
+		if err != nil {
+			s.error500(w, err)
+			return
+		}
+		if !ok {
+			auth.WriteAlertRedirect(w, r, http.StatusForbidden, "您沒有此交易的存取權", "/journal")
+			return
+		}
+		next(w, r)
+	})
+}

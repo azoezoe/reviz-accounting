@@ -84,7 +84,7 @@
   </div>
 
   <nav class="lg-side__nav">
-    <div class="lg-side__group">
+    {{if and $user (eq $user.Role "owner")}}<div class="lg-side__group">
       <p class="lg-side__section">OVERVIEW</p>
       <a href="/dashboard" class="lg-side__item{{if eq $active "dashboard"}} is-active{{end}}">
         <span class="lg-side__item-icon">
@@ -98,9 +98,9 @@
         </span>
         日記帳
       </a>
-    </div>
+    </div>{{end}}
 
-    <div class="lg-side__group">
+    {{if and $user (eq $user.Role "owner")}}<div class="lg-side__group">
       <p class="lg-side__section">STATEMENTS</p>
       <a href="/pnl" class="lg-side__item{{if eq $active "pnl"}} is-active{{end}}">
         <span class="lg-side__item-icon">
@@ -108,7 +108,7 @@
         </span>
         損益表
       </a>
-    </div>
+    </div>{{end}}
 
     <div class="lg-side__group">
       <p class="lg-side__section">STRUCTURE</p>
@@ -116,7 +116,7 @@
         <span class="lg-side__item-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3h10l3 3v15H6z"/><path d="M9 10h6M9 14h6"/></svg></span>
         報價單
       </a>
-      <a href="/accounts" class="lg-side__item{{if eq $active "accounts"}} is-active{{end}}">
+      {{if and $user (eq $user.Role "owner")}}<a href="/accounts" class="lg-side__item{{if eq $active "accounts"}} is-active{{end}}">
         <span class="lg-side__item-icon">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 10v4M18 10v4"/></svg>
         </span>
@@ -127,17 +127,17 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h6v6H4zM14 5h6v6h-6zM4 13h6v6H4zM14 13h6v6h-6z"/></svg>
         </span>
         分類
-      </a>
+      </a>{{end}}
       <a href="/projects" class="lg-side__item{{if eq $active "projects"}} is-active{{end}}">
         <span class="lg-side__item-icon">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h7l2 2h9v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>
         </span>
         專案
       </a>
-      <a href="/counterparties" class="lg-side__item{{if eq $active "counterparties"}} is-active{{end}}">
+      {{if and $user (eq $user.Role "owner")}}<a href="/counterparties" class="lg-side__item{{if eq $active "counterparties"}} is-active{{end}}">
         <span class="lg-side__item-icon"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="7" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>
         交易對象
-      </a>
+      </a>{{end}}
     </div>
 
     <div class="lg-side__group">
@@ -150,12 +150,12 @@
         使用者
       </a>
       {{end}}
-      <a href="/settings" class="lg-side__item{{if eq $active "settings"}} is-active{{end}}">
+      {{if and $user (eq $user.Role "owner")}}<a href="/settings" class="lg-side__item{{if eq $active "settings"}} is-active{{end}}">
         <span class="lg-side__item-icon">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
         </span>
         設定
-      </a>
+      </a>{{end}}
     </div>
   </nav>
 

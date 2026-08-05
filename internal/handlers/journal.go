@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hcchien/reviz-accounting/internal/auth"
 	"github.com/hcchien/reviz-accounting/internal/models"
 	"github.com/hcchien/reviz-accounting/internal/money"
 )
@@ -33,6 +34,9 @@ func (s *Server) journalList(w http.ResponseWriter, r *http.Request) {
 		Limit:      pageSize,
 		Offset:     int(parseInt64(q.Get("offset"))),
 	}
+	if u := auth.FromContext(r.Context()); u != nil && u.Role != auth.RoleOwner {
+		f.ProjectUserID = u.ID
+	}
 	txs, total, err := models.ListTransactions(s.DB, f)
 	if err != nil {
 		s.error500(w, err)
@@ -51,10 +55,21 @@ func (s *Server) journalList(w http.ResponseWriter, r *http.Request) {
 	// Running balances must be derived from the complete ledger, not just the
 	// current filter/page; otherwise a project filter or page two would show a
 	// misleading historical balance.
-	allTxs, _, err := models.ListTransactions(s.DB, models.TxFilter{})
+	allTxs, _, err := models.ListTransactions(s.DB, models.TxFilter{ProjectUserID: f.ProjectUserID})
 	if err != nil {
 		s.error500(w, err)
 		return
+	}
+	if f.ProjectUserID > 0 {
+		balances = make(map[int64]int64)
+		for _, tx := range allTxs {
+			if tx.ToAccountID.Valid {
+				balances[tx.ToAccountID.Int64] += tx.AmountCents
+			}
+			if tx.FromAccountID.Valid {
+				balances[tx.FromAccountID.Int64] -= tx.AmountCents
+			}
+		}
 	}
 	allViews := journalTransactionViews(allTxs, balances)
 	byID := make(map[int64]journalTransactionView, len(allViews))
@@ -76,6 +91,7 @@ func (s *Server) journalList(w http.ResponseWriter, r *http.Request) {
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
+	projs = s.accessibleProjects(r, projs)
 	counterparties, _ := models.ListCounterparties(s.DB, "")
 
 	// Build month options from distinct YYYY-MM in transactions.
@@ -154,6 +170,7 @@ func (s *Server) journalNew(w http.ResponseWriter, r *http.Request) {
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
+	projs = s.accessibleProjects(r, projs)
 	counterparties, _ := models.ListCounterparties(s.DB, "")
 	today := time.Now().Format("2006-01-02")
 
@@ -180,10 +197,25 @@ func (s *Server) journalEdit(w http.ResponseWriter, r *http.Request) {
 	s.renderJournalEdit(w, r, t, &budgetPostingForm{Kind: "partner_payout"})
 }
 
+func (s *Server) accessibleProjects(r *http.Request, all []models.Project) []models.Project {
+	u := auth.FromContext(r.Context())
+	if u == nil || u.Role == auth.RoleOwner {
+		return all
+	}
+	out := all[:0]
+	for _, p := range all {
+		if ok, _ := models.CanAccessProject(s.DB, p.ID, u.ID, false); ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func (s *Server) renderJournalEdit(w http.ResponseWriter, r *http.Request, t *models.Transaction, postingForm *budgetPostingForm) {
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
+	projs = s.accessibleProjects(r, projs)
 	counterparties, _ := models.ListCounterparties(s.DB, "")
 	attachments, _ := models.ListAttachments(s.DB, t.ID)
 	postings, _ := models.ListBudgetPostings(s.DB, t.ID)
@@ -309,6 +341,9 @@ func (s *Server) journalCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.Code = code
+	if !s.canWriteTransactionProject(w, r, t.ProjectID) {
+		return
+	}
 	if _, err := models.CreateTransaction(s.DB, t); err != nil {
 		s.error500(w, err)
 		return
@@ -328,11 +363,35 @@ func (s *Server) journalUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.ID = id
+	if !s.canWriteTransactionProject(w, r, t.ProjectID) {
+		return
+	}
 	if err := models.UpdateTransaction(s.DB, t); err != nil {
 		s.error500(w, err)
 		return
 	}
 	http.Redirect(w, r, "/journal", http.StatusSeeOther)
+}
+
+func (s *Server) canWriteTransactionProject(w http.ResponseWriter, r *http.Request, projectID sql.NullInt64) bool {
+	u := auth.FromContext(r.Context())
+	if u == nil || u.Role == auth.RoleOwner {
+		return true
+	}
+	if !projectID.Valid {
+		http.Error(w, "accountant 必須將交易歸屬於有寫入權限的專案", http.StatusForbidden)
+		return false
+	}
+	ok, err := models.CanAccessProject(s.DB, projectID.Int64, u.ID, true)
+	if err != nil {
+		s.error500(w, err)
+		return false
+	}
+	if !ok {
+		http.Error(w, "您沒有此專案的寫入權", http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 func (s *Server) journalDelete(w http.ResponseWriter, r *http.Request) {
