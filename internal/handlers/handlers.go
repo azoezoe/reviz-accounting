@@ -161,6 +161,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /projects/{id}/budget", view(func(w http.ResponseWriter, r *http.Request) { s.projectRead(s.projectBudgetPage).ServeHTTP(w, r) }))
 	mux.Handle("GET /projects/{id}/management", view(func(w http.ResponseWriter, r *http.Request) { s.projectRead(s.projectManagementPage).ServeHTTP(w, r) }))
 	mux.Handle("GET /projects/{id}/summary", view(func(w http.ResponseWriter, r *http.Request) { s.projectRead(s.projectSummary).ServeHTTP(w, r) }))
+	mux.Handle("GET /projects/{id}/quotes/{quoteID}/print", view(func(w http.ResponseWriter, r *http.Request) { s.projectRead(s.projectQuotePrint).ServeHTTP(w, r) }))
 	mux.Handle("GET /counterparties", owner(s.counterpartiesList))
 	mux.Handle("GET /pnl", owner(s.pnl))
 	mux.Handle("GET /settings", owner(s.settingsPage))

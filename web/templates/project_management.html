@@ -74,7 +74,7 @@
         <input class="lg-input" type="number" step="0.01" min="0" name="unit_price" placeholder="單價" required>
         <button class="lg-btn-primary">加項目</button>
       </form>{{end}}
-      <div class="mgmt-actions"><button type="button" class="lg-btn-link" onclick="window.print()">列印 / PDF</button>
+      <div class="mgmt-actions"><a class="lg-btn-link" href="/projects/{{$.Project.ID}}/quotes/{{.ID}}/print" target="_blank" rel="noopener">列印 / PDF</a>
         <form method="post" action="/projects/{{$.Project.ID}}/quotes/{{.ID}}/revise"><button class="lg-btn-link">建立修訂版</button></form>
         {{if ne .Status "accepted"}}<form method="post" action="/projects/{{$.Project.ID}}/quotes/{{.ID}}/accept" class="mgmt-accept" onsubmit="return confirm('客戶已接受？系統將建立執行專案並完成預算分配。')">
           <input class="lg-input" name="project_name" placeholder="執行專案名稱（可留空）">

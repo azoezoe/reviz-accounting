@@ -1,0 +1,39 @@
+{{define "content"}}
+<style>
+  @page { size: A4; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #eef2f1; color: #172027; font-family: Arial, "PingFang TC", "Noto Sans TC", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .print-toolbar { display: flex; width: 210mm; margin: 0 auto; padding: 10px 14px; gap: 8px; align-items: center; background: #172027; color: #fff; }
+  .print-toolbar button { padding: 8px 14px; border: 1px solid #6b7a80; border-radius: 6px; background: transparent; color: #fff; cursor: pointer; font: inherit; }
+  .print-page { width: 210mm; min-height: 297mm; margin: 8mm auto; padding: 16mm 15mm; background: #fff; box-shadow: 0 2mm 8mm rgba(32,45,52,.15); }
+  .ribbon { height: 2mm; margin: -16mm -15mm 12mm; background: linear-gradient(90deg, #0e6f66, #2bb7a8, #d98a42); }
+  .head { display: flex; justify-content: space-between; gap: 12mm; padding-bottom: 5mm; border-bottom: 1px dashed #d9e3e1; }
+  .eyebrow { margin: 0 0 2mm; color: #0f5f57; font-size: 11px; font-weight: 800; letter-spacing: .1em; }
+  h1 { margin: 0; font-size: 25px; letter-spacing: .04em; }
+  .issuer { max-width: 70mm; color: #60707a; font-size: 12px; line-height: 1.55; text-align: right; }
+  .issuer p { margin: 0; }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 3mm; margin: 6mm 0; }
+  .meta div { min-height: 18mm; padding: 3mm; border: 1px solid #e0ebea; border-radius: 3mm; background: #f9fcfc; font-size: 13px; }
+  .meta span { display: block; margin-bottom: 1mm; color: #5f707a; font-size: 10px; }
+  .table { width: 100%; margin-top: 5mm; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+  .table th, .table td { padding: 3mm 2mm; border-bottom: 1px solid #e0e9e7; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+  .table th { background: #eff8f7; font-weight: 700; }
+  .num { width: 8%; } .item { width: 38%; } .quantity { width: 18%; } .amount { width: 20%; }
+  .right { text-align: right !important; white-space: nowrap; }
+  .totals { display: grid; justify-items: end; gap: 1.5mm; margin-top: 6mm; font-size: 12px; }
+  .totals p { margin: 0; } .total { padding: 2mm 3mm; border-radius: 3mm; background: #e9f8f5; color: #0c5f57; font-size: 18px; font-weight: 900; }
+  .note { margin: 6mm 0 0; color: #60707a; font-size: 11px; line-height: 1.6; white-space: pre-wrap; }
+  @media print { html, body { background: #fff; } .print-toolbar { display: none; } .print-page { margin: 0; box-shadow: none; } }
+</style>
+
+<div class="print-toolbar"><button type="button" onclick="window.print()">列印 / 另存 PDF</button></div>
+<main class="print-page">
+  <div class="ribbon"></div>
+  <header class="head"><div><p class="eyebrow">報價單</p><h1>QUOTATION</h1></div><div class="issuer"><p><strong>{{.Quote.IssuerName}}</strong></p><p>{{.Quote.QuoteNo}} · V{{.Quote.VersionNo}}</p></div></header>
+  <section class="meta"><div><span>客戶</span>{{.Quote.ClientName}}</div><div><span>專案</span>{{.Quote.Title}}</div></section>
+  <table class="table"><thead><tr><th class="num">#</th><th class="item">項目</th><th class="quantity right">數量</th><th class="amount right">金額</th></tr></thead><tbody>{{range $index, $item := .Quote.Items}}<tr><td>{{quoteItemNo $index}}</td><td>{{$item.Description}}</td><td class="right">{{quoteQuantity $item.Quantity}} {{$item.Unit}}</td><td class="right">{{currencySymbol $.Quote.Currency}}{{quoteMoney $item.LineTotalCents}}</td></tr>{{else}}<tr><td colspan="4">尚無報價項目</td></tr>{{end}}</tbody></table>
+  <div class="totals"><p>Subtotal: {{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.SubtotalCents}}</p>{{if ne .Quote.DiscountCents 0}}<p>Discount: -{{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.DiscountCents}}</p>{{end}}{{if ne .Quote.TaxCents 0}}<p>Tax: {{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.TaxCents}}</p>{{end}}<p class="total">Total: {{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.TotalCents}}</p></div>
+  {{if .Quote.Note}}<p class="note"><strong>備註：</strong>{{.Quote.Note}}</p>{{end}}
+</main>
+{{end}}
+{{template "base" .}}

@@ -131,6 +131,25 @@ func (s *Server) projectQuoteCreate(w http.ResponseWriter, r *http.Request) {
 	redirectManagement(w, r)
 }
 
+func (s *Server) projectQuotePrint(w http.ResponseWriter, r *http.Request) {
+	projectID, quoteID := parseInt64(r.PathValue("id")), parseInt64(r.PathValue("quoteID"))
+	quotes, err := models.ListProjectQuotes(s.DB, projectID)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	for _, quote := range quotes {
+		if quote.ID == quoteID {
+			s.renderStandalone(w, "project_quote_print.html", map[string]any{
+				"Title": "報價單 " + quote.QuoteNo,
+				"Quote": quote,
+			})
+			return
+		}
+	}
+	http.Error(w, "找不到報價單", http.StatusNotFound)
+}
+
 func (s *Server) projectQuoteDelete(w http.ResponseWriter, r *http.Request) {
 	if err := models.DeleteProjectQuote(s.DB, parseInt64(r.PathValue("quoteID")), parseInt64(r.PathValue("id"))); err != nil {
 		s.error500(w, err)
