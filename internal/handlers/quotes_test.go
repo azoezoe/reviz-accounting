@@ -335,3 +335,51 @@ func TestQuoteChoiceItemsProduceAlternativeTotals(t *testing.T) {
 		t.Fatalf("accepted budget = %d, choice = %q, note = %q", budget, acceptedChoice, budgetNote)
 	}
 }
+
+func TestQuotePrintRendersChoiceBreakdownsAndPaginationGuards(t *testing.T) {
+	s, err := NewServer(nil, os.DirFS("../.."), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := quoteView{
+		QuoteNo:        "Q-CHOICE",
+		Title:          "方案報價",
+		ClientName:     "客戶",
+		IssuerName:     "ReViz",
+		Currency:       "TWD",
+		QuoteDate:      "2026-08-14",
+		QuoteLanguage:  "zh-TW",
+		QuoteType:      "company",
+		SignatureLabel: "簽核",
+		HasChoices:     true,
+		Items: []quoteItemView{
+			{Description: "共同項目", Quantity: 1, Unit: "式", UnitPriceCents: 10000, LineTotalCents: 10000},
+			{Description: "方案 A", Quantity: 1, Unit: "式", UnitPriceCents: 20000, LineTotalCents: 20000, IsChoice: true, ChoiceLabel: "A"},
+			{Description: "方案 B", Quantity: 1, Unit: "式", UnitPriceCents: 30000, LineTotalCents: 30000, IsChoice: true, ChoiceLabel: "B"},
+		},
+		TotalOptions: []quoteTotalView{
+			{Label: "A", ChoiceDescription: "方案 A", SubtotalCents: 30000, TaxCents: 1500, TotalCents: 31500},
+			{Label: "B", ChoiceDescription: "方案 B", SubtotalCents: 40000, TaxCents: 2000, TotalCents: 42000},
+		},
+	}
+	rec := httptest.NewRecorder()
+	s.renderStandalone(rec, "quote_print.html", map[string]any{
+		"Title":       "報價單 Q-CHOICE",
+		"CompanyName": "ReViz",
+		"FiscalYear":  "2026",
+		"Quote":       q,
+		"Attachments": []any{},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("render status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, expected := range []string{
+		"Subtotal A:", "Tax A:", "總計 A:", "Subtotal B:", "Tax B:", "總計 B:",
+		"protectedCanvasRanges", "canvasBreakCandidates", "drawBlankMarker", "sign-block--new-page", "以下空白",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("rendered quote is missing %q", expected)
+		}
+	}
+}
