@@ -149,7 +149,7 @@
   <div class="lg-panel__head">
     <div>
       <h3 class="lg-panel__title">報價項目</h3>
-      <p class="lg-panel__sub">項目、說明與金額會依序顯示於 PDF。</p>
+      <p class="lg-panel__sub">一般項目會共同加總；兩個以上的選擇項目會分成 A、B… 方案各自計算。</p>
     </div>
   </div>
   <div class="lg-table-scroll">
@@ -161,7 +161,10 @@
         {{range $index, $item := .Quote.Items}}
         <tr>
           <td>{{quoteItemNo $index}}</td>
-          <td>{{$item.Description}}</td>
+          <td>
+            {{$item.Description}}
+            {{if $item.IsChoice}}<span class="mgmt-choice-badge">選擇項目 {{$item.ChoiceLabel}}</span>{{end}}
+          </td>
           <td>{{$item.Detail}}</td>
           {{if $.Quote.ShowUnitPrice}}<td class="right">{{printf "%.2f" $item.Quantity}} {{$item.Unit}}</td><td class="right">{{money $item.UnitPriceCents}}</td>{{end}}
           <td class="right">{{money $item.LineTotalCents}}</td>
@@ -172,12 +175,24 @@
       </tbody>
     </table>
   </div>
+  {{if .Quote.HasChoices}}
+  <div class="mgmt-choice-totals">
+    {{range .Quote.TotalOptions}}
+    <div class="mgmt-choice-total">
+      <span>方案 {{.Label}} · {{.ChoiceDescription}}</span>
+      <small>小計 {{money .SubtotalCents}} · 折扣 −{{money .DiscountCents}} · 稅額 {{money .TaxCents}}</small>
+      <strong>總計 {{money .TotalCents}} {{$.Quote.Currency}}{{if eq .Label $.Quote.AcceptedChoiceLabel}} · 客戶已選{{end}}</strong>
+    </div>
+    {{end}}
+  </div>
+  {{else}}
   <div class="mgmt-quote-total">
     <span>小計 {{money .Quote.SubtotalCents}}</span>
     <span>折扣 −{{money .Quote.DiscountCents}}</span>
     <span>稅額 {{money .Quote.TaxCents}}</span>
     <strong>總計 {{money .Quote.TotalCents}} {{.Quote.Currency}}</strong>
   </div>
+  {{end}}
   {{if eq .Quote.Status "draft"}}
   <form method="post" action="/quotes/{{.Quote.ID}}/items" class="mgmt-inline-form">
     <input class="lg-input" name="description" required placeholder="項目名稱">
@@ -185,6 +200,7 @@
     <input class="lg-input" type="number" name="quantity" value="1" step="0.01" placeholder="數量">
     <input class="lg-input" name="unit" placeholder="單位">
     <input class="lg-input" type="number" name="unit_price" step="0.01" required placeholder="報價金額／單價">
+    <label class="mgmt-check"><input type="checkbox" name="is_choice" value="1"> 選擇項目</label>
     <button class="lg-btn-primary" type="submit">新增項目</button>
   </form>
   {{end}}
@@ -266,6 +282,12 @@
   </form>
   <form method="post" action="/quotes/{{.Quote.ID}}/accept" class="mgmt-accept" onsubmit="return confirm('確認客戶同意？系統會立即建立正式專案。')">
     <input class="lg-input" name="project_name" placeholder="正式專案名稱（可留空）">
+    {{if .Quote.HasChoices}}
+    <select class="lg-select" name="choice_label" required aria-label="客戶選擇的報價方案">
+      <option value="">選擇客戶同意方案</option>
+      {{range .Quote.TotalOptions}}<option value="{{.Label}}">方案 {{.Label}} · {{.ChoiceDescription}}（{{money .TotalCents}}）</option>{{end}}
+    </select>
+    {{end}}
     <button class="lg-btn-primary" type="submit">客戶同意並建立專案</button>
   </form>
   {{end}}

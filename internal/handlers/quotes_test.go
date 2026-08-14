@@ -208,11 +208,12 @@ func TestQuoteItemNumbersRestartForEveryQuote(t *testing.T) {
 			project_id INTEGER, quote_date TEXT, valid_until TEXT, issuer_contact TEXT,
 			issuer_email TEXT, issuer_tax_id TEXT, project_content TEXT, terms TEXT,
 			signature_label TEXT, quote_language TEXT, quote_type TEXT, show_unit_price INTEGER,
-			personal_name TEXT, personal_contact TEXT
+			personal_name TEXT, personal_contact TEXT, accepted_choice_label TEXT
 		);
 		CREATE TABLE quote_items (
 			id INTEGER PRIMARY KEY, quote_id INTEGER, description TEXT, detail TEXT,
-			quantity REAL, unit TEXT, unit_price_cents INTEGER, sort_order INTEGER
+			quantity REAL, unit TEXT, unit_price_cents INTEGER, sort_order INTEGER,
+			is_choice INTEGER NOT NULL DEFAULT 0
 		);
 		CREATE TABLE quote_specifications (
 			id INTEGER PRIMARY KEY, quote_id INTEGER, feature TEXT, use_case TEXT,
@@ -224,13 +225,13 @@ func TestQuoteItemNumbersRestartForEveryQuote(t *testing.T) {
 			content_type TEXT, size_bytes INTEGER, uploaded_by_id INTEGER, created_at TEXT
 		);
 		INSERT INTO quotes VALUES
-			(1,'Q-1','第一張','客戶','ReViz','TWD','percent',0,0,'','draft',1,NULL,NULL,'2026-07-30',NULL,'','','','','','簽核','zh-TW','company',0,'',''),
-			(2,'Q-2','第二張','客戶','ReViz','TWD','percent',0,0,'','draft',1,NULL,NULL,'2026-07-30',NULL,'','','','','','簽核','zh-TW','company',0,'','');
-		INSERT INTO quote_items VALUES
-			(101,1,'第一張第一項','',1,'式',100,0),
-			(102,1,'第一張第二項','',1,'式',100,1),
-			(205,2,'第二張第一項','',1,'式',100,0),
-			(220,2,'第二張第二項','',1,'式',100,1);
+			(1,'Q-1','第一張','客戶','ReViz','TWD','percent',0,0,'','draft',1,NULL,NULL,'2026-07-30',NULL,'','','','','','簽核','zh-TW','company',0,'','',''),
+			(2,'Q-2','第二張','客戶','ReViz','TWD','percent',0,0,'','draft',1,NULL,NULL,'2026-07-30',NULL,'','','','','','簽核','zh-TW','company',0,'','','');
+		INSERT INTO quote_items(id,quote_id,description,detail,quantity,unit,unit_price_cents,sort_order,is_choice) VALUES
+			(101,1,'第一張第一項','',1,'式',100,0,0),
+			(102,1,'第一張第二項','',1,'式',100,1,0),
+			(205,2,'第二張第一項','',1,'式',100,0,0),
+			(220,2,'第二張第二項','',1,'式',100,1,0);
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -255,5 +256,82 @@ func TestQuoteItemNumbersRestartForEveryQuote(t *testing.T) {
 		if strings.Contains(body, "<td>101</td>") || strings.Contains(body, "<td>205</td>") || strings.Contains(body, "<td>220</td>") {
 			t.Fatalf("quote %s leaks global item IDs into display numbering", quoteID)
 		}
+	}
+}
+
+func TestQuoteChoiceItemsProduceAlternativeTotals(t *testing.T) {
+	d, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	_, err = d.Exec(`
+		CREATE TABLE quotes (
+			id INTEGER PRIMARY KEY, quote_no TEXT, title TEXT, client_name TEXT,
+			issuer_name TEXT, currency TEXT, discount_type TEXT, discount_value REAL,
+			tax_rate REAL, note TEXT, status TEXT, version_no INTEGER, parent_quote_id INTEGER,
+			project_id INTEGER, quote_date TEXT, valid_until TEXT, issuer_contact TEXT,
+			issuer_email TEXT, issuer_tax_id TEXT, project_content TEXT, terms TEXT,
+			signature_label TEXT, quote_language TEXT, quote_type TEXT, show_unit_price INTEGER,
+			personal_name TEXT, personal_contact TEXT, accepted_choice_label TEXT
+		);
+		CREATE TABLE quote_items (
+			id INTEGER PRIMARY KEY, quote_id INTEGER, description TEXT, detail TEXT,
+			quantity REAL, unit TEXT, unit_price_cents INTEGER, sort_order INTEGER,
+			is_choice INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE TABLE quote_specifications (
+			id INTEGER PRIMARY KEY, quote_id INTEGER, feature TEXT, use_case TEXT,
+			capability TEXT, implementation_steps TEXT, sort_order INTEGER
+		);
+		CREATE TABLE projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, note TEXT);
+		CREATE TABLE project_budgets (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER, total_amount_cents INTEGER, note TEXT);
+		INSERT INTO quotes VALUES
+			(1,'Q-CHOICE','方案報價','客戶','ReViz','TWD','percent',10,5,'','draft',1,NULL,NULL,'2026-08-14',NULL,'','','','','','簽核','zh-TW','company',0,'','','');
+		INSERT INTO quote_items(id,quote_id,description,detail,quantity,unit,unit_price_cents,sort_order,is_choice) VALUES
+			(1,1,'共同項目','',1,'式',10000,0,0),
+			(2,1,'基本方案','',1,'式',20000,1,1),
+			(3,1,'進階方案','',1,'式',30000,2,1);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	q, err := (&Server{DB: d}).loadQuote(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !q.HasChoices || len(q.TotalOptions) != 2 {
+		t.Fatalf("choice totals = hasChoices %v, options %d; want true and 2", q.HasChoices, len(q.TotalOptions))
+	}
+	if got := q.TotalOptions[0]; got.Label != "A" || got.SubtotalCents != 30000 || got.DiscountCents != 3000 || got.TaxCents != 1350 || got.TotalCents != 28350 {
+		t.Fatalf("option A = %+v", got)
+	}
+	if got := q.TotalOptions[1]; got.Label != "B" || got.SubtotalCents != 40000 || got.DiscountCents != 4000 || got.TaxCents != 1800 || got.TotalCents != 37800 {
+		t.Fatalf("option B = %+v", got)
+	}
+	if q.Items[1].ChoiceLabel != "A" || q.Items[2].ChoiceLabel != "B" {
+		t.Fatalf("choice labels = %q, %q", q.Items[1].ChoiceLabel, q.Items[2].ChoiceLabel)
+	}
+
+	form := url.Values{"project_name": {"採用進階方案"}, "choice_label": {"B"}}
+	req := httptest.NewRequest(http.MethodPost, "/quotes/1/accept", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("id", "1")
+	rec := httptest.NewRecorder()
+	(&Server{DB: d}).quoteAccept(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("quoteAccept status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var budget int64
+	var budgetNote, acceptedChoice string
+	if err := d.QueryRow(`SELECT total_amount_cents,note FROM project_budgets`).Scan(&budget, &budgetNote); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.QueryRow(`SELECT accepted_choice_label FROM quotes WHERE id=1`).Scan(&acceptedChoice); err != nil {
+		t.Fatal(err)
+	}
+	if budget != 37800 || acceptedChoice != "B" || !strings.Contains(budgetNote, "方案 B") {
+		t.Fatalf("accepted budget = %d, choice = %q, note = %q", budget, acceptedChoice, budgetNote)
 	}
 }

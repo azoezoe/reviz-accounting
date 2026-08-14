@@ -49,12 +49,19 @@
     </thead>
     <tbody>
       {{range .Quotes}}
+      {{$quote := .}}
       <tr>
         <td>{{.QuoteNo}}</td>
         <td>{{.Title}}</td>
         <td>{{.ClientName}}</td>
         <td>V{{.VersionNo}} · {{if eq .Status "accepted"}}已同意{{else if eq .Status "draft"}}草稿{{else}}已送出{{end}}</td>
-        <td class="right">{{money .TotalCents}} {{.Currency}}</td>
+        <td class="right">
+          {{if .HasChoices}}
+            {{range .TotalOptions}}<div>方案 {{.Label}}：{{money .TotalCents}} {{$quote.Currency}}</div>{{end}}
+          {{else}}
+            {{money .TotalCents}} {{.Currency}}
+          {{end}}
+        </td>
         <td><a class="lg-btn-link" href="/quotes/{{.ID}}">開啟 →</a></td>
       </tr>
       {{else}}

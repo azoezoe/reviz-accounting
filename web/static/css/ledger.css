@@ -1217,7 +1217,13 @@
 .mgmt-print-head p,.mgmt-note { color:var(--text-muted); font-size:12px; }
 .mgmt-quote-total { display:flex; justify-content:flex-end; flex-wrap:wrap; gap:16px; padding:14px 0; font-family:var(--font-mono); font-size:12px; }
 .mgmt-quote-total strong { color:var(--text-brand); font-size:14px; }
-.mgmt-inline-form { display:grid; grid-template-columns:2fr .6fr .5fr .8fr auto; gap:8px; align-items:end; padding-top:12px; border-top:1px dashed var(--border-subtle); }
+.mgmt-choice-badge { display:inline-flex; margin-left:6px; padding:2px 7px; border-radius:999px; background:var(--surface-tint); color:var(--text-brand); font-size:10px; font-weight:700; white-space:nowrap; }
+.mgmt-choice-totals { display:grid; gap:8px; justify-content:end; padding:14px 0; }
+.mgmt-choice-total { display:grid; grid-template-columns:minmax(170px,1fr) auto auto; gap:14px; align-items:center; padding:10px 12px; border:1px solid var(--border-subtle); border-radius:var(--r-sm); background:var(--surface-tint); font-family:var(--font-mono); font-size:12px; }
+.mgmt-choice-total span { color:var(--text-strong); font-weight:700; }
+.mgmt-choice-total small { color:var(--text-muted); }
+.mgmt-choice-total strong { color:var(--text-brand); font-size:14px; }
+.mgmt-inline-form { display:grid; grid-template-columns:2fr 2fr .6fr .5fr .8fr auto auto; gap:8px; align-items:end; padding-top:12px; border-top:1px dashed var(--border-subtle); }
 .mgmt-actions { display:flex; justify-content:flex-end; align-items:center; gap:8px; margin-top:12px; }
 .mgmt-actions form,.mgmt-chip form,.mgmt-list__row form { margin:0; }
 .mgmt-accept { display:flex; gap:7px; align-items:center; }
@@ -1236,6 +1242,7 @@
   .mgmt-form-grid,.mgmt-form-grid--compact { grid-template-columns:1fr 1fr; }
   .mgmt-span { grid-column:span 2; }
   .mgmt-inline-form { grid-template-columns:1fr 1fr; }
+  .mgmt-choice-total { grid-template-columns:1fr; gap:4px; }
 }
 @media print {
   .lg-side,.lg-top,.lg-page-head,.lg-kpi-grid,.mgmt-record:not([open]),.mgmt-record summary,.mgmt-inline-form,.mgmt-actions,#hours,#cashflow { display:none !important; }
