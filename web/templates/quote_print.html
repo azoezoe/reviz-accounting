@@ -170,6 +170,17 @@
     font-size: 12px;
   }
   .invoice-totals p { margin: 0; }
+  .invoice-total-option {
+    display: grid;
+    justify-items: end;
+    gap: .5mm;
+    margin-top: 1mm;
+  }
+  .invoice-total-option__name {
+    color: #42655f;
+    font-size: 11px;
+    font-weight: 700;
+  }
   .invoice-totals .final {
     padding: 1mm 2mm;
     border-radius: 3mm;
@@ -200,7 +211,10 @@
     justify-content: space-between;
     border: 1px dashed #cad6d4;
     border-radius: 4mm;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
+  .print-blank-marker { display: none; }
   .sign-label {
     margin: 0;
     color: #5f707a;
@@ -292,6 +306,19 @@
       margin: 0;
       box-shadow: none;
     }
+    .print-blank-marker {
+      display: block;
+      margin: 4mm 0 0;
+      color: #60707a;
+      font-size: 11px;
+      letter-spacing: .22em;
+      text-align: center;
+    }
+    .sign-block--new-page {
+      margin-top: 10mm;
+      break-before: page;
+      page-break-before: always;
+    }
   }
 </style>
 
@@ -382,7 +409,13 @@
   <div class="invoice-totals">
     {{if .Quote.HasChoices}}
     {{range .Quote.TotalOptions}}
-    <p class="final"><small>{{if eq $.Quote.QuoteLanguage "en"}}Option{{else}}方案{{end}} {{.Label}} · {{.ChoiceDescription}}</small>{{if eq $.Quote.QuoteLanguage "en"}}Total{{else}}總計{{end}} {{.Label}}: {{currencySymbol $.Quote.Currency}}{{quoteMoney .TotalCents}}</p>
+    <div class="invoice-total-option">
+      <p class="invoice-total-option__name">{{if eq $.Quote.QuoteLanguage "en"}}Option{{else}}方案{{end}} {{.Label}} · {{.ChoiceDescription}}</p>
+      <p>Subtotal {{.Label}}: {{currencySymbol $.Quote.Currency}}{{quoteMoney .SubtotalCents}}</p>
+      {{if ne .DiscountCents 0}}<p>Discount {{.Label}}: -{{currencySymbol $.Quote.Currency}}{{quoteMoney .DiscountCents}}</p>{{end}}
+      <p>Tax {{.Label}}: {{currencySymbol $.Quote.Currency}}{{quoteMoney .TaxCents}}</p>
+      <p class="final">{{if eq $.Quote.QuoteLanguage "en"}}Total{{else}}總計{{end}} {{.Label}}: {{currencySymbol $.Quote.Currency}}{{quoteMoney .TotalCents}}</p>
+    </div>
     {{end}}
     {{else}}
     <p>Subtotal: {{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.SubtotalCents}}</p>
@@ -449,24 +482,105 @@
     }));
   };
 
-  const appendCanvasPages = async (pdf, canvas) => {
+  const protectedCanvasRanges = (element, canvas) => {
+    const elementRect = element.getBoundingClientRect();
+    const scaleY = canvas.height / element.scrollHeight;
+    return Array.from(element.querySelectorAll(".invoice-totals, .sign-block")).map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        bottom: Math.ceil((rect.bottom - elementRect.top) * scaleY),
+        top: Math.floor((rect.top - elementRect.top) * scaleY)
+      };
+    });
+  };
+
+  const canvasBreakCandidates = (element, canvas) => {
+    const elementRect = element.getBoundingClientRect();
+    const scaleY = canvas.height / element.scrollHeight;
+    return Array.from(element.querySelectorAll(".line-items tbody tr, .invoice-totals, .invoice-note, .sign-block"))
+      .flatMap((node) => {
+        const rect = node.getBoundingClientRect();
+        return [
+          Math.floor((rect.top - elementRect.top) * scaleY),
+          Math.floor((rect.bottom - elementRect.top) * scaleY)
+        ];
+      })
+      .sort((a, b) => a - b);
+  };
+
+  const drawBlankMarker = (context, canvasWidth, visibleHeight, sliceHeight) => {
+    const fontSize = Math.max(20, Math.round(canvasWidth * .014));
+    const available = sliceHeight - visibleHeight;
+    const markerY = Math.min(sliceHeight - fontSize, visibleHeight + Math.max(fontSize * 2, available / 2));
+    context.fillStyle = "#60707a";
+    context.font = `${fontSize}px Arial, "PingFang TC", "Noto Sans TC", sans-serif`;
+    context.letterSpacing = `${Math.round(fontSize * .22)}px`;
+    context.textAlign = "center";
+    context.fillText("以下空白", canvasWidth / 2, markerY);
+  };
+
+  const appendCanvasPages = async (pdf, canvas, element) => {
     const sliceHeight = Math.round(canvas.width * A4_HEIGHT / A4_WIDTH);
-    for (let top = 0; top < canvas.height; top += sliceHeight) {
+    const protectedRanges = protectedCanvasRanges(element, canvas);
+    const breakCandidates = canvasBreakCandidates(element, canvas);
+    let top = 0;
+    while (top < canvas.height) {
+      let end = Math.min(top + sliceHeight, canvas.height);
+      let movedSignature = false;
+      const markFirstPageBlank = top === 0 && canvas.height > sliceHeight;
+      if (markFirstPageBlank) {
+        const markerReserve = Math.max(80, Math.round(canvas.width * .075));
+        const markerLimit = end - markerReserve;
+        const preferredBreak = breakCandidates.filter((candidate) => candidate > top && candidate <= markerLimit).pop();
+        end = preferredBreak || markerLimit;
+      }
+      protectedRanges.forEach((range) => {
+        if (range.top > top && range.top < end && range.bottom > end) {
+          end = range.top;
+          movedSignature = true;
+        }
+      });
+      if (end <= top) end = Math.min(top + sliceHeight, canvas.height);
       const fragment = document.createElement("canvas");
       fragment.width = canvas.width;
       fragment.height = sliceHeight;
       const context = fragment.getContext("2d");
       context.fillStyle = "#fff";
       context.fillRect(0, 0, fragment.width, fragment.height);
-      const visibleHeight = Math.min(sliceHeight, canvas.height - top);
+      const visibleHeight = end - top;
       context.drawImage(canvas, 0, top, canvas.width, visibleHeight, 0, 0, canvas.width, visibleHeight);
+      if (markFirstPageBlank || movedSignature) drawBlankMarker(context, canvas.width, visibleHeight, sliceHeight);
       const imageBlob = await new Promise((resolve, reject) => {
         fragment.toBlob((blob) => blob ? resolve(blob) : reject(new Error("無法建立報價頁面")), "image/png");
       });
       const image = await pdf.embedPng(await imageBlob.arrayBuffer());
       const page = pdf.addPage([A4_WIDTH, A4_HEIGHT]);
       page.drawImage(image, {x: 0, y: 0, width: A4_WIDTH, height: A4_HEIGHT});
+      top = end;
     }
+  };
+
+  const clearPrintPagination = () => {
+    document.querySelectorAll(".print-blank-marker").forEach((marker) => marker.remove());
+    document.querySelectorAll(".sign-block--new-page").forEach((block) => block.classList.remove("sign-block--new-page"));
+  };
+
+  const preparePrintPagination = () => {
+    clearPrintPagination();
+    const page = document.querySelector("main.quote-page");
+    const signature = page && page.querySelector(".sign-block");
+    if (!page || !signature) return;
+    const pageRect = page.getBoundingClientRect();
+    const signatureRect = signature.getBoundingClientRect();
+    const pageHeight = pageRect.width * A4_HEIGHT / A4_WIDTH;
+    const signatureTop = signatureRect.top - pageRect.top;
+    const signatureBottom = signatureRect.bottom - pageRect.top;
+    if (Math.floor(signatureTop / pageHeight) === Math.floor((signatureBottom - 1) / pageHeight)) return;
+    const marker = document.createElement("p");
+    marker.className = "print-blank-marker";
+    marker.textContent = "以下空白";
+    signature.before(marker);
+    signature.classList.add("sign-block--new-page");
   };
 
   const exportPDF = async () => {
@@ -488,7 +602,7 @@
           useCORS: true,
           width: element.scrollWidth
         });
-        await appendCanvasPages(pdf, canvas);
+        await appendCanvasPages(pdf, canvas, element);
       }
 
       for (let index = 0; index < attachmentURLs.length; index += 1) {
@@ -522,7 +636,13 @@
   };
 
   downloadButton.addEventListener("click", exportPDF);
-  printButton.addEventListener("click", () => print());
+  printButton.addEventListener("click", async () => {
+    await waitForAssets();
+    preparePrintPagination();
+    print();
+  });
+  addEventListener("beforeprint", preparePrintPagination);
+  addEventListener("afterprint", clearPrintPagination);
   addEventListener("load", () => {
     if (new URLSearchParams(location.search).get("download") === "1") {
       setTimeout(exportPDF, 150);
