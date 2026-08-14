@@ -43,7 +43,11 @@ func RequireRole(role string, next http.Handler) http.Handler {
 			return
 		}
 		if !u.AtLeast(role) {
-			WriteAlertRedirect(w, r, http.StatusForbidden, "權限不足", "/dashboard")
+			redirect := "/dashboard"
+			if role == RoleOwner {
+				redirect = "/projects"
+			}
+			WriteAlertRedirect(w, r, http.StatusForbidden, "權限不足", redirect)
 			return
 		}
 		next.ServeHTTP(w, r)

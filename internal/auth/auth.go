@@ -39,6 +39,7 @@ var roleRank = map[string]int{
 type User struct {
 	ID          int64
 	Username    string
+	FullName    string
 	Role        string
 	Active      bool
 	CreatedAt   string
@@ -73,6 +74,10 @@ func VerifyPassword(hash, plain string) bool {
 // ----- user CRUD -----
 
 func CreateUser(d *sql.DB, username, password, role string) (*User, error) {
+	return CreateUserWithName(d, username, password, role, "")
+}
+
+func CreateUserWithName(d *sql.DB, username, password, role, fullName string) (*User, error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return nil, errors.New("帳號不可為空")
@@ -86,8 +91,8 @@ func CreateUser(d *sql.DB, username, password, role string) (*User, error) {
 	}
 	var id int64
 	err = d.QueryRow(
-		`INSERT INTO users(username, password_hash, role) VALUES(?,?,?) RETURNING id`,
-		username, hash, role,
+		`INSERT INTO users(username, full_name, password_hash, role) VALUES(?,?,?,?) RETURNING id`,
+		username, strings.TrimSpace(fullName), hash, role,
 	).Scan(&id)
 	if err != nil {
 		return nil, err
@@ -99,9 +104,9 @@ func GetUser(d *sql.DB, id int64) (*User, error) {
 	u := &User{}
 	var active int
 	err := d.QueryRow(
-		`SELECT id, username, role, active, created_at, last_login_at
+		`SELECT id, username, full_name, role, active, created_at, last_login_at
 		 FROM users WHERE id=?`, id,
-	).Scan(&u.ID, &u.Username, &u.Role, &active, &u.CreatedAt, &u.LastLoginAt)
+	).Scan(&u.ID, &u.Username, &u.FullName, &u.Role, &active, &u.CreatedAt, &u.LastLoginAt)
 	if err != nil {
 		return nil, err
 	}
@@ -114,9 +119,9 @@ func GetUserByUsername(d *sql.DB, username string) (*User, string, error) {
 	var active int
 	var hash string
 	err := d.QueryRow(
-		`SELECT id, username, password_hash, role, active, created_at, last_login_at
+		`SELECT id, username, full_name, password_hash, role, active, created_at, last_login_at
 		 FROM users WHERE username=?`, username,
-	).Scan(&u.ID, &u.Username, &hash, &u.Role, &active, &u.CreatedAt, &u.LastLoginAt)
+	).Scan(&u.ID, &u.Username, &u.FullName, &hash, &u.Role, &active, &u.CreatedAt, &u.LastLoginAt)
 	if err != nil {
 		return nil, "", err
 	}
@@ -126,7 +131,7 @@ func GetUserByUsername(d *sql.DB, username string) (*User, string, error) {
 
 func ListUsers(d *sql.DB) ([]User, error) {
 	rows, err := d.Query(
-		`SELECT id, username, role, active, created_at, last_login_at
+		`SELECT id, username, full_name, role, active, created_at, last_login_at
 		 FROM users ORDER BY id`,
 	)
 	if err != nil {
@@ -137,13 +142,18 @@ func ListUsers(d *sql.DB) ([]User, error) {
 	for rows.Next() {
 		var u User
 		var active int
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &active, &u.CreatedAt, &u.LastLoginAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.FullName, &u.Role, &active, &u.CreatedAt, &u.LastLoginAt); err != nil {
 			return nil, err
 		}
 		u.Active = active == 1
 		out = append(out, u)
 	}
 	return out, rows.Err()
+}
+
+func UpdateUserFullName(d *sql.DB, id int64, fullName string) error {
+	_, err := d.Exec(`UPDATE users SET full_name=? WHERE id=?`, strings.TrimSpace(fullName), id)
+	return err
 }
 
 func CountUsers(d *sql.DB) (int, error) {
@@ -224,10 +234,10 @@ func userBySession(d *sql.DB, sid string) (*User, error) {
 	var active int
 	var expires string
 	err := d.QueryRow(`
-		SELECT u.id, u.username, u.role, u.active, u.created_at, u.last_login_at, s.expires_at
+		SELECT u.id, u.username, u.full_name, u.role, u.active, u.created_at, u.last_login_at, s.expires_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
 		WHERE s.id=?`, sid,
-	).Scan(&u.ID, &u.Username, &u.Role, &active, &u.CreatedAt, &u.LastLoginAt, &expires)
+	).Scan(&u.ID, &u.Username, &u.FullName, &u.Role, &active, &u.CreatedAt, &u.LastLoginAt, &expires)
 	if err != nil {
 		return nil, err
 	}

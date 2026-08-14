@@ -42,8 +42,8 @@ export DATABASE_URL='postgres://USER:PASSWORD@HOST/DB?sslmode=require'
 | 角色 | 可以做的事 |
 |---|---|
 | `owner` | 所有權限 + 使用者管理 |
-| `accountant` | 可記帳：新增/修改交易、帳戶、分類、專案、設定、匯入 CSV |
-| `viewer` | 唯讀：看儀表板、日記帳、損益表、帳戶等所有頁面 |
+| `accountant` | 可記帳；可建立報價與專案，並預設取得自己建立專案的 read/write 權限 |
+| `viewer` | 唯讀；僅可查看被授權的專案 |
 
 第一個 owner 必須從 CLI 建立：
 
@@ -57,6 +57,8 @@ export DATABASE_URL='postgres://USER:PASSWORD@HOST/DB?sslmode=require'
 Session 用 cookie + DB 存（30 天）。停用使用者會自動把該人的 session 全清掉。改密碼也會踢出其他裝置。
 
 新增的專案營運功能沿用相同權限：`viewer` 可讀取報價版本、工時、應收與成本；`accountant`、`owner` 可新增、修訂與接受報價、記錄工時及更新收付款狀態。MCP OAuth token 也綁定同一使用者與角色，所有 MCP 呼叫會以實際工具名稱寫入 `mcp_audit_log`。
+
+專案另有獨立的 `read` / `write` 成員授權。owner 可在「專案營運」頁指派成員；accountant 建立專案或接受自己建立的報價時，系統會自動授予該專案 `write` 權限。
 
 MCP 提供獨立報價的查詢、建立、明細、修訂與接受工具；`accept_quote` 會在客戶同意後原子化建立正式專案與專案總預算。既有的 `get_project_management` 與專案營運工具則維持供已成立專案使用。
 

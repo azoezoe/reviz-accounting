@@ -24,6 +24,7 @@
     </div>
   </div>
   <form id="quote-data-form" method="post" action="/quotes/{{.Quote.ID}}" class="mgmt-form-grid">
+    <input type="hidden" name="save_as_new_version" value="0">
     <label class="lg-field">
       <span class="lg-field__label">報價編號</span>
       <input class="lg-input" value="{{.Quote.QuoteNo}}" disabled>
@@ -77,6 +78,16 @@
     <label class="lg-field">
       <span class="lg-field__label">報價有效日期</span>
       <input class="lg-input" type="date" name="valid_until" value="{{.Quote.ValidUntil}}">
+    </label>
+
+    <label class="lg-field">
+      <span class="lg-field__label">報價聯絡人（系統使用者）</span>
+      <select class="lg-select" name="contact_user_id">
+        <option value="">— 手動填寫 —</option>
+        {{range .Contacts}}
+        <option value="{{.ID}}" {{if eq .ID $.Quote.ContactUserID}}selected{{end}}>{{if .FullName}}{{.FullName}}{{else}}{{.Username}}{{end}}</option>
+        {{end}}
+      </select>
     </label>
 
     <label class="lg-field quote-company-field">
@@ -155,7 +166,7 @@
   <div class="lg-table-scroll">
     <table class="lg-table">
       <thead>
-        <tr><th>#</th><th>項目</th><th>說明</th>{{if .Quote.ShowUnitPrice}}<th class="right">數量</th><th class="right">單價</th>{{end}}<th class="right">金額</th></tr>
+        <tr><th>#</th><th>項目</th><th>說明</th>{{if .Quote.ShowUnitPrice}}<th class="right">數量</th><th class="right">單價</th>{{end}}<th class="right">金額</th>{{if eq .Quote.Status "draft"}}<th></th>{{end}}</tr>
       </thead>
       <tbody>
         {{range $index, $item := .Quote.Items}}
@@ -166,11 +177,32 @@
             {{if $item.IsChoice}}<span class="mgmt-choice-badge">選擇項目 {{$item.ChoiceLabel}}</span>{{end}}
           </td>
           <td>{{$item.Detail}}</td>
-          {{if $.Quote.ShowUnitPrice}}<td class="right">{{printf "%.2f" $item.Quantity}} {{$item.Unit}}</td><td class="right">{{money $item.UnitPriceCents}}</td>{{end}}
-          <td class="right">{{money $item.LineTotalCents}}</td>
+          {{if $.Quote.ShowUnitPrice}}<td class="right">{{quoteQuantity $item.Quantity}} {{$item.Unit}}</td><td class="right">{{quoteMoney $item.UnitPriceCents}}</td>{{end}}
+          <td class="right">{{quoteMoney $item.LineTotalCents}}</td>
+          {{if eq $.Quote.Status "draft"}}
+          <td class="right">
+            <details style="display:inline-block;text-align:left;">
+              <summary class="lg-btn-link" style="display:inline-block;">修改</summary>
+              <form method="post" action="/quotes/{{$.Quote.ID}}/items/{{$item.ID}}" class="mgmt-inline-form" style="grid-template-columns:repeat(6,minmax(100px,1fr)) auto;margin-top:8px;padding:10px;background:var(--bg-muted);border-radius:var(--r-sm);min-width:740px;">
+                <input class="lg-input" name="description" value="{{$item.Description}}" required placeholder="項目名稱">
+                <input class="lg-input" name="detail" value="{{$item.Detail}}" placeholder="說明">
+                <input class="lg-input" type="number" name="quantity" value="{{$item.Quantity}}" step="0.01" required placeholder="數量">
+                <input class="lg-input" name="unit" value="{{$item.Unit}}" placeholder="單位">
+                <input class="lg-input" type="number" name="unit_price" value="{{moneyRaw $item.UnitPriceCents}}" step="0.01" required placeholder="單價">
+                <label class="mgmt-check"><input type="checkbox" name="is_choice" value="1" {{if $item.IsChoice}}checked{{end}}> 選擇項目</label>
+                <button class="lg-btn-primary" type="submit">儲存</button>
+              </form>
+            </details>
+            <form method="post" action="/quotes/{{$.Quote.ID}}/items/{{$item.ID}}/delete" style="display:inline;" onsubmit="return confirm('確定刪除「{{$item.Description}}」？')">
+              <button class="lg-row-action is-danger" type="submit" title="刪除項目" aria-label="刪除項目">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+              </button>
+            </form>
+          </td>
+          {{end}}
         </tr>
         {{else}}
-        <tr><td colspan="6">尚無項目</td></tr>
+        <tr><td colspan="7">尚無項目</td></tr>
         {{end}}
       </tbody>
     </table>
@@ -187,10 +219,10 @@
   </div>
   {{else}}
   <div class="mgmt-quote-total">
-    <span>小計 {{money .Quote.SubtotalCents}}</span>
-    <span>折扣 −{{money .Quote.DiscountCents}}</span>
-    <span>稅額 {{money .Quote.TaxCents}}</span>
-    <strong>總計 {{money .Quote.TotalCents}} {{.Quote.Currency}}</strong>
+    <span>小計 {{quoteMoney .Quote.SubtotalCents}}</span>
+    <span>折扣 −{{quoteMoney .Quote.DiscountCents}}</span>
+    <span>稅額 {{quoteMoney .Quote.TaxCents}}</span>
+    <strong>總計 {{quoteMoney .Quote.TotalCents}} {{.Quote.Currency}}</strong>
   </div>
   {{end}}
   {{if eq .Quote.Status "draft"}}
@@ -277,9 +309,6 @@
   <span class="mgmt-accepted">✓ 已同意，已建立正式專案</span>
   <a class="lg-btn-primary" href="/projects/{{.Quote.ProjectID}}/management">開啟專案</a>
   {{else}}
-  <form method="post" action="/quotes/{{.Quote.ID}}/revise">
-    <button class="lg-btn-link" type="submit">複製目前報價</button>
-  </form>
   <form method="post" action="/quotes/{{.Quote.ID}}/accept" class="mgmt-accept" onsubmit="return confirm('確認客戶同意？系統會立即建立正式專案。')">
     <input class="lg-input" name="project_name" placeholder="正式專案名稱（可留空）">
     {{if .Quote.HasChoices}}
@@ -290,6 +319,11 @@
     {{end}}
     <button class="lg-btn-primary" type="submit">客戶同意並建立專案</button>
   </form>
+  {{if eq .Quote.Status "draft"}}
+  <form method="post" action="/quotes/{{.Quote.ID}}/delete" onsubmit="return confirm('確定刪除此草稿報價單？其項目、規格與附件都會一併刪除。')">
+    <button class="lg-btn-danger" type="submit">刪除報價單</button>
+  </form>
+  {{end}}
   {{end}}
 </div>
 
@@ -328,6 +362,10 @@
   syncQuoteType(false);
 
   form.addEventListener("submit", () => {
+    const saveAsNewVersion = form.elements.save_as_new_version;
+    if (saveAsNewVersion) {
+      saveAsNewVersion.value = window.confirm("要建立新的版本號嗎？\n\n按「確定」：建立下一版，原版本會保留。\n按「取消」：直接覆蓋目前版本。") ? "1" : "0";
+    }
     const button = document.getElementById("save-quote-data");
     if (!button) return;
     button.disabled = true;

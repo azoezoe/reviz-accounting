@@ -28,6 +28,14 @@ CREATE TABLE IF NOT EXISTS users (
  role TEXT NOT NULL CHECK (role IN ('owner','accountant','viewer')), active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text, last_login_at TEXT
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS project_permissions (
+ project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+ user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ access_level TEXT NOT NULL CHECK (access_level IN ('read','write')),
+ PRIMARY KEY(project_id,user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_project_permissions_user ON project_permissions(user_id,project_id);
 CREATE TABLE IF NOT EXISTS transactions (
  id BIGSERIAL PRIMARY KEY, code TEXT NOT NULL UNIQUE, tx_date TEXT NOT NULL, description TEXT NOT NULL,
  counterparty_id BIGINT REFERENCES counterparties(id) ON DELETE SET NULL, category_id BIGINT REFERENCES categories(id) ON DELETE RESTRICT,
@@ -88,6 +96,8 @@ ALTER TABLE quotes ADD COLUMN IF NOT EXISTS show_unit_price INTEGER NOT NULL DEF
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS personal_name TEXT NOT NULL DEFAULT '';
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS personal_contact TEXT NOT NULL DEFAULT '';
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS accepted_choice_label TEXT NOT NULL DEFAULT '';
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS contact_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS created_by_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS detail TEXT NOT NULL DEFAULT '';
 ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS is_choice INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_quote_specifications_quote ON quote_specifications(quote_id);
@@ -201,6 +211,7 @@ CREATE INDEX IF NOT EXISTS idx_tx_project ON transactions(project_id);
 CREATE INDEX IF NOT EXISTS idx_milestones_project ON project_milestones(project_id);
 CREATE INDEX IF NOT EXISTS idx_budget_alloc_milestone ON project_budget_allocations(milestone_id);
 CREATE INDEX IF NOT EXISTS idx_tx_budget_alloc_tx ON transaction_budget_allocations(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_tx_budget_alloc_allocation ON transaction_budget_allocations(budget_allocation_id);
 CREATE INDEX IF NOT EXISTS idx_tx_counterparty ON transactions(counterparty_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);

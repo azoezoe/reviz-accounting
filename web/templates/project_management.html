@@ -11,6 +11,30 @@
   </div>
 </div>
 
+{{if eq .CurrentUser.Role "owner"}}
+<section class="lg-panel" id="permissions" style="margin-bottom:18px;">
+  <div class="lg-panel__head"><div><h3 class="lg-panel__title">專案存取權</h3><p class="lg-panel__sub">owner 永遠擁有完整權限；在此指派其他成員。</p></div></div>
+  <form method="post" action="/projects/{{.Project.ID}}/permissions" style="display:flex;gap:8px;align-items:end;flex-wrap:wrap;">
+    <label class="lg-field"><span class="lg-field__label">成員</span><select class="lg-select" name="user_id" required>{{range .Users}}{{if and .Active (ne .Role "owner")}}<option value="{{.ID}}">{{if .FullName}}{{.FullName}} · {{end}}{{.Username}}</option>{{end}}{{end}}</select></label>
+    <label class="lg-field"><span class="lg-field__label">權限</span><select class="lg-select" name="access_level"><option value="read">read</option><option value="write">write</option></select></label>
+    <button class="lg-btn-primary">儲存權限</button>
+  </form>
+  <div style="display:grid;gap:8px;margin-top:12px;">
+  {{range .Permissions}}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;">
+      <span style="min-width:180px;">{{if .FullName}}{{.FullName}} · {{end}}{{.Username}}</span>
+      <form method="post" action="/projects/{{$.Project.ID}}/permissions" style="display:flex;gap:6px;align-items:center;">
+        <input type="hidden" name="user_id" value="{{.UserID}}">
+        <select class="lg-select" name="access_level" aria-label="{{.Username}} 的權限"><option value="read" {{if eq .AccessLevel "read"}}selected{{end}}>read</option><option value="write" {{if eq .AccessLevel "write"}}selected{{end}}>write</option></select>
+        <button class="lg-btn-link" type="submit">更新</button>
+      </form>
+      <form method="post" action="/projects/{{$.Project.ID}}/permissions/{{.UserID}}/delete" onsubmit="return confirm('移除 {{.Username}} 的此專案權限？')"><button class="lg-btn-link" type="submit" style="color:var(--danger-700);">移除</button></form>
+    </div>
+  {{else}}<p class="lg-panel__sub" style="margin:0;">尚未指派其他成員。</p>{{end}}
+  </div>
+</section>
+{{end}}
+
 <div class="lg-kpi-grid" style="margin-bottom:18px;">
   <div class="lg-kpi"><p class="lg-kpi__label">最新報價</p><p class="lg-kpi__value">{{money .Summary.QuoteTotalCents}}</p></div>
   <div class="lg-kpi"><p class="lg-kpi__label">已收／應收</p><p class="lg-kpi__value">{{money .Summary.ReceivedCents}} <small>/ {{money .Summary.ReceivableCents}}</small></p></div>
@@ -50,7 +74,7 @@
         <input class="lg-input" type="number" step="0.01" min="0" name="unit_price" placeholder="單價" required>
         <button class="lg-btn-primary">加項目</button>
       </form>{{end}}
-      <div class="mgmt-actions"><button type="button" class="lg-btn-link" onclick="window.print()">列印 / PDF</button>
+      <div class="mgmt-actions"><a class="lg-btn-link" href="/projects/{{$.Project.ID}}/quotes/{{.ID}}/print" target="_blank" rel="noopener">列印 / PDF</a>
         <form method="post" action="/projects/{{$.Project.ID}}/quotes/{{.ID}}/revise"><button class="lg-btn-link">建立修訂版</button></form>
         {{if ne .Status "accepted"}}<form method="post" action="/projects/{{$.Project.ID}}/quotes/{{.ID}}/accept" class="mgmt-accept" onsubmit="return confirm('客戶已接受？系統將建立執行專案並完成預算分配。')">
           <input class="lg-input" name="project_name" placeholder="執行專案名稱（可留空）">

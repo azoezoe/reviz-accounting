@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hcchien/reviz-accounting/internal/auth"
 	"github.com/hcchien/reviz-accounting/internal/models"
 	"github.com/hcchien/reviz-accounting/internal/money"
 )
@@ -42,6 +43,16 @@ func (s *Server) projectManagementPage(w http.ResponseWriter, r *http.Request) {
 		s.error500(w, err)
 		return
 	}
+	permissions, err := models.ListProjectPermissions(s.DB, id)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	users, err := auth.ListUsers(s.DB)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
 	var summary models.ProjectManagementSummary
 	if len(quotes) > 0 {
 		summary.QuoteTotalCents = quotes[0].TotalCents
@@ -65,8 +76,36 @@ func (s *Server) projectManagementPage(w http.ResponseWriter, r *http.Request) {
 		"Title": "專案營運", "Crumbs": []string{"專案", project.Name, "營運"},
 		"Active": "projects", "Project": project, "Quotes": quotes, "Roles": roles,
 		"Entries": entries, "Receivables": receivables, "Costs": costs, "Summary": summary,
+		"Permissions": permissions, "Users": users,
 		"NextQuoteNo": models.NextQuoteNo(s.DB), "Today": time.Now().Format("2006-01-02"),
 	})
+}
+
+func (s *Server) projectPermissionSave(w http.ResponseWriter, r *http.Request) {
+	projectID, userID := parseInt64(r.PathValue("id")), parseInt64(r.FormValue("user_id"))
+	level := r.FormValue("access_level")
+	if userID <= 0 || (level != "read" && level != "write") {
+		http.Error(w, "權限欄位格式錯誤", http.StatusBadRequest)
+		return
+	}
+	if err := models.GrantProjectAccess(s.DB, projectID, userID, level); err != nil {
+		s.error500(w, err)
+		return
+	}
+	http.Redirect(w, r, "/projects/"+r.PathValue("id")+"/management", http.StatusSeeOther)
+}
+
+func (s *Server) projectPermissionDelete(w http.ResponseWriter, r *http.Request) {
+	projectID, userID := parseInt64(r.PathValue("id")), parseInt64(r.PathValue("userID"))
+	if userID <= 0 {
+		http.Error(w, "使用者不存在", http.StatusBadRequest)
+		return
+	}
+	if err := models.RevokeProjectAccess(s.DB, projectID, userID); err != nil {
+		s.error500(w, err)
+		return
+	}
+	http.Redirect(w, r, "/projects/"+r.PathValue("id")+"/management#permissions", http.StatusSeeOther)
 }
 
 func (s *Server) projectQuoteCreate(w http.ResponseWriter, r *http.Request) {
@@ -90,6 +129,25 @@ func (s *Server) projectQuoteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirectManagement(w, r)
+}
+
+func (s *Server) projectQuotePrint(w http.ResponseWriter, r *http.Request) {
+	projectID, quoteID := parseInt64(r.PathValue("id")), parseInt64(r.PathValue("quoteID"))
+	quotes, err := models.ListProjectQuotes(s.DB, projectID)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	for _, quote := range quotes {
+		if quote.ID == quoteID {
+			s.renderStandalone(w, "project_quote_print.html", map[string]any{
+				"Title": "報價單 " + quote.QuoteNo,
+				"Quote": quote,
+			})
+			return
+		}
+	}
+	http.Error(w, "找不到報價單", http.StatusNotFound)
 }
 
 func (s *Server) projectQuoteDelete(w http.ResponseWriter, r *http.Request) {

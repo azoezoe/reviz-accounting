@@ -1,10 +1,13 @@
 package mcp
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/hcchien/reviz-accounting/internal/auth"
 	"github.com/hcchien/reviz-accounting/internal/models"
 )
 
@@ -46,16 +49,24 @@ func (s *Server) projectManagement(projectID int64) (any, error) {
 	}, nil)
 }
 
-func (s *Server) projectManagementWrite(name string, a map[string]any) (any, error) {
+func (s *Server) projectManagementWriteForUser(u *auth.User, name string, a map[string]any) (any, error) {
 	switch name {
 	case "create_quote":
-		return s.createStandaloneQuote(a)
+		return s.createStandaloneQuote(u, a)
+	case "update_quote":
+		return s.updateStandaloneQuote(a)
+	case "delete_quote":
+		return s.deleteStandaloneQuote(a)
 	case "create_standalone_quote_item":
 		return s.createStandaloneQuoteItem(a)
+	case "update_standalone_quote_item":
+		return s.updateStandaloneQuoteItem(a)
+	case "delete_standalone_quote_item":
+		return s.deleteStandaloneQuoteItem(a)
 	case "revise_quote":
 		return s.reviseStandaloneQuote(a)
 	case "accept_quote":
-		return s.acceptStandaloneQuote(a)
+		return s.acceptStandaloneQuote(u, a)
 	case "create_project_quote":
 		return s.createProjectQuote(a)
 	case "create_quote_item":
@@ -65,6 +76,9 @@ func (s *Server) projectManagementWrite(name string, a map[string]any) (any, err
 		return content(map[string]any{"quote_id": id, "version_created": true}, err)
 	case "accept_project_quote":
 		id, err := models.AcceptQuoteAndCreateProject(s.DB, numID(a, "quote_id"), numID(a, "project_id"), str(a, "project_name"))
+		if err == nil && u.Role != auth.RoleOwner {
+			err = models.GrantProjectAccess(s.DB, id, u.ID, "write")
+		}
 		return content(map[string]any{"execution_project_id": id, "quote_accepted": true, "budget_allocated": true}, err)
 	case "create_project_role":
 		return s.createProjectRole(a)
@@ -161,7 +175,7 @@ func standaloneChoiceLabel(index int) string {
 	return fmt.Sprintf("%d", index+1)
 }
 
-func (s *Server) createStandaloneQuote(a map[string]any) (any, error) {
+func (s *Server) createStandaloneQuote(u *auth.User, a map[string]any) (any, error) {
 	no := strings.TrimSpace(str(a, "quote_no"))
 	if no == "" {
 		var n int
@@ -180,8 +194,177 @@ func (s *Server) createStandaloneQuote(a map[string]any) (any, error) {
 		tax = 5
 	}
 	var id int64
-	err := s.DB.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`, no, str(a, "title"), str(a, "client_name"), str(a, "issuer_name"), defaultText(str(a, "currency"), "TWD"), discountType, num(a, "discount_value"), tax, str(a, "note")).Scan(&id)
+	err := s.DB.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,created_by_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`, no, str(a, "title"), str(a, "client_name"), str(a, "issuer_name"), defaultText(str(a, "currency"), "TWD"), discountType, num(a, "discount_value"), tax, str(a, "note"), u.ID).Scan(&id)
 	return content(map[string]any{"quote_id": id, "quote_no": no}, err)
+}
+
+func (s *Server) updateStandaloneQuote(a map[string]any) (any, error) {
+	id := numID(a, "quote_id")
+	if id <= 0 {
+		return nil, fmtErr("quote_id 必填")
+	}
+	var status string
+	if err := s.DB.QueryRow(`SELECT status FROM quotes WHERE id=?`, id).Scan(&status); err != nil {
+		return nil, err
+	}
+	if status != "draft" {
+		return nil, fmtErr("只有草稿報價單可以修改")
+	}
+	targetID := id
+	allowedText := map[string]string{
+		"title": "title", "client_name": "client_name", "issuer_name": "issuer_name", "currency": "currency",
+		"discount_type": "discount_type", "note": "note", "quote_date": "quote_date", "valid_until": "valid_until",
+		"issuer_contact": "issuer_contact", "issuer_email": "issuer_email", "issuer_tax_id": "issuer_tax_id",
+		"project_content": "project_content", "terms": "terms", "signature_label": "signature_label",
+		"quote_language": "quote_language", "quote_type": "quote_type", "personal_name": "personal_name", "personal_contact": "personal_contact",
+	}
+	sets, args := make([]string, 0, len(allowedText)+4), make([]any, 0, len(allowedText)+5)
+	for key, column := range allowedText {
+		if _, ok := a[key]; ok {
+			sets, args = append(sets, column+"=?"), append(args, str(a, key))
+		}
+	}
+	for _, key := range []string{"discount_value", "tax_rate"} {
+		if _, ok := a[key]; ok {
+			sets, args = append(sets, key+"=?"), append(args, num(a, key))
+		}
+	}
+	if _, ok := a["show_unit_price"]; ok {
+		sets, args = append(sets, "show_unit_price=?"), append(args, boolToInt(boolean(a, "show_unit_price")))
+	}
+	if _, ok := a["contact_user_id"]; ok {
+		contactID := numID(a, "contact_user_id")
+		if contactID > 0 {
+			var active bool
+			if err := s.DB.QueryRow(`SELECT active=1 FROM users WHERE id=?`, contactID).Scan(&active); err != nil || !active {
+				return nil, fmtErr("contact_user_id 不存在或使用者已停用")
+			}
+			sets, args = append(sets, "contact_user_id=?"), append(args, contactID)
+		} else {
+			sets = append(sets, "contact_user_id=NULL")
+		}
+	}
+	if len(sets) == 0 {
+		return nil, fmtErr("至少提供一個要更新的欄位")
+	}
+	if _, ok := a["discount_value"]; ok && num(a, "discount_value") < 0 {
+		return nil, fmtErr("discount_value 不可為負數")
+	}
+	if _, ok := a["tax_rate"]; ok && num(a, "tax_rate") < 0 {
+		return nil, fmtErr("tax_rate 不可為負數")
+	}
+	if _, ok := a["discount_type"]; ok && str(a, "discount_type") != "amount" && str(a, "discount_type") != "percent" {
+		return nil, fmtErr("discount_type 必須是 amount 或 percent")
+	}
+	if boolean(a, "create_new_version") {
+		var err error
+		targetID, err = s.cloneStandaloneQuoteVersion(id)
+		if err != nil {
+			return nil, err
+		}
+	}
+	sets = append(sets, "updated_at=CAST(CURRENT_TIMESTAMP AS TEXT)")
+	args = append(args, targetID)
+	result, err := s.DB.Exec(`UPDATE quotes SET `+strings.Join(sets, ",")+` WHERE id=? AND status='draft'`, args...)
+	if err != nil {
+		return nil, err
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		return nil, fmtErr("報價單已不是可修改的草稿")
+	}
+	return content(map[string]any{"quote_id": targetID, "version_created": targetID != id}, nil)
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func (s *Server) cloneStandaloneQuoteVersion(id int64) (int64, error) {
+	tx, err := s.DB.BeginTx(context.Background(), nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var quoteNo, status string
+	var version int
+	if err = tx.QueryRow(`SELECT quote_no,version_no,status FROM quotes WHERE id=?`, id).Scan(&quoteNo, &version, &status); err != nil {
+		return 0, err
+	}
+	if status != "draft" {
+		return 0, fmtErr("只有草稿報價單可以建立新版")
+	}
+	var newID int64
+	newNo := fmt.Sprintf("%s-R%d", strings.Split(quoteNo, "-R")[0], version+1)
+	err = tx.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id) SELECT ?,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,?,id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id FROM quotes WHERE id=? RETURNING id`, newNo, version+1, id).Scan(&newID)
+	if err == nil {
+		_, err = tx.Exec(`INSERT INTO quote_items(quote_id,description,detail,quantity,unit,unit_price_cents,is_choice,sort_order) SELECT ?,description,detail,quantity,unit,unit_price_cents,is_choice,sort_order FROM quote_items WHERE quote_id=?`, newID, id)
+	}
+	if err == nil {
+		_, err = tx.Exec(`INSERT INTO quote_specifications(quote_id,feature,use_case,capability,implementation_steps,sort_order) SELECT ?,feature,use_case,capability,implementation_steps,sort_order FROM quote_specifications WHERE quote_id=?`, newID, id)
+	}
+	if err == nil {
+		var result sql.Result
+		result, err = tx.Exec(`UPDATE quotes SET status='sent' WHERE id=? AND status='draft'`, id)
+		if err == nil {
+			rows, rowsErr := result.RowsAffected()
+			if rowsErr != nil || rows != 1 {
+				return 0, fmtErr("報價單已不是可建立新版的草稿")
+			}
+		}
+	}
+	if err != nil {
+		return 0, err
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, err
+	}
+	return newID, nil
+}
+
+func (s *Server) deleteStandaloneQuote(a map[string]any) (any, error) {
+	id := numID(a, "quote_id")
+	if id <= 0 {
+		return nil, fmtErr("quote_id 必填")
+	}
+	var status string
+	if err := s.DB.QueryRow(`SELECT status FROM quotes WHERE id=?`, id).Scan(&status); err != nil {
+		return nil, err
+	}
+	if status != "draft" {
+		return nil, fmtErr("只有草稿報價單可以刪除")
+	}
+	rows, err := s.DB.Query(`SELECT storage_key FROM quote_attachments WHERE quote_id=?`, id)
+	if err != nil {
+		return nil, err
+	}
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	for _, key := range keys {
+		if err := s.Attachments.Delete(context.Background(), key); err != nil {
+			return nil, err
+		}
+	}
+	result, err := s.DB.Exec(`DELETE FROM quotes WHERE id=? AND status='draft'`, id)
+	if err != nil {
+		return nil, err
+	}
+	if count, err := result.RowsAffected(); err != nil || count != 1 {
+		return nil, fmtErr("報價單已不是可刪除的草稿")
+	}
+	return content(map[string]any{"quote_id": id, "deleted": true}, nil)
 }
 func (s *Server) createStandaloneQuoteItem(a map[string]any) (any, error) {
 	id := numID(a, "quote_id")
@@ -209,25 +392,74 @@ func (s *Server) createStandaloneQuoteItem(a map[string]any) (any, error) {
 	err := s.DB.QueryRow(`INSERT INTO quote_items(quote_id,description,quantity,unit,unit_price_cents,is_choice,sort_order) SELECT $1,$2,$3,$4,$5,$6,COUNT(*) FROM quote_items WHERE quote_id=$1 RETURNING id`, id, desc, qty, defaultText(str(a, "unit"), "式"), price, isChoice).Scan(&itemID)
 	return content(map[string]any{"item_id": itemID, "quote_id": id}, err)
 }
-func (s *Server) reviseStandaloneQuote(a map[string]any) (any, error) {
-	id := numID(a, "quote_id")
-	q, err := s.standaloneQuote(id)
+
+func (s *Server) updateStandaloneQuoteItem(a map[string]any) (any, error) {
+	quoteID, itemID := numID(a, "quote_id"), numID(a, "item_id")
+	if quoteID <= 0 || itemID <= 0 {
+		return nil, fmtErr("quote_id 與 item_id 必填")
+	}
+	sets, args := []string{}, []any{}
+	for _, field := range []string{"description", "detail", "unit"} {
+		if _, ok := a[field]; ok {
+			value := str(a, field)
+			if field == "description" && strings.TrimSpace(value) == "" {
+				return nil, fmtErr("description 不可為空")
+			}
+			if field == "unit" && strings.TrimSpace(value) == "" {
+				value = "式"
+			}
+			sets, args = append(sets, field+"=?"), append(args, value)
+		}
+	}
+	if _, ok := a["quantity"]; ok {
+		if num(a, "quantity") <= 0 {
+			return nil, fmtErr("quantity 必須大於 0")
+		}
+		sets, args = append(sets, "quantity=?"), append(args, num(a, "quantity"))
+	}
+	if _, ok := a["unit_price_cents"]; ok {
+		if num(a, "unit_price_cents") < 0 {
+			return nil, fmtErr("unit_price_cents 不可為負數")
+		}
+		sets, args = append(sets, "unit_price_cents=?"), append(args, numID(a, "unit_price_cents"))
+	}
+	if _, ok := a["is_choice"]; ok {
+		sets, args = append(sets, "is_choice=?"), append(args, boolToInt(boolean(a, "is_choice")))
+	}
+	if len(sets) == 0 {
+		return nil, fmtErr("至少提供一個要更新的欄位")
+	}
+	args = append(args, itemID, quoteID)
+	result, err := s.DB.Exec(`UPDATE quote_items SET `+strings.Join(sets, ",")+` WHERE id=? AND quote_id=? AND EXISTS (SELECT 1 FROM quotes WHERE id=? AND status='draft')`, append(args, quoteID)...)
 	if err != nil {
 		return nil, err
 	}
-	no := q["quote_no"].(string)
-	version := q["version_no"].(int)
-	var newID int64
-	err = s.DB.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id) SELECT $1,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,$2,id FROM quotes WHERE id=$3 RETURNING id`, fmt.Sprintf("%s-R%d", strings.Split(no, "-R")[0], version+1), version+1, id).Scan(&newID)
-	if err == nil {
-		_, err = s.DB.Exec(`INSERT INTO quote_items(quote_id,description,quantity,unit,unit_price_cents,is_choice,sort_order) SELECT $1,description,quantity,unit,unit_price_cents,is_choice,sort_order FROM quote_items WHERE quote_id=$2`, newID, id)
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		return nil, fmtErr("報價項目不存在或報價單已鎖定")
 	}
-	if err == nil {
-		_, err = s.DB.Exec(`UPDATE quotes SET status='sent' WHERE id=$1 AND status='draft'`, id)
+	return content(map[string]any{"quote_id": quoteID, "item_id": itemID, "updated": true}, nil)
+}
+
+func (s *Server) deleteStandaloneQuoteItem(a map[string]any) (any, error) {
+	quoteID, itemID := numID(a, "quote_id"), numID(a, "item_id")
+	if quoteID <= 0 || itemID <= 0 {
+		return nil, fmtErr("quote_id 與 item_id 必填")
 	}
+	result, err := s.DB.Exec(`DELETE FROM quote_items WHERE id=? AND quote_id=? AND EXISTS (SELECT 1 FROM quotes WHERE id=? AND status='draft')`, itemID, quoteID, quoteID)
+	if err != nil {
+		return nil, err
+	}
+	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
+		return nil, fmtErr("報價項目不存在或報價單已鎖定")
+	}
+	return content(map[string]any{"quote_id": quoteID, "item_id": itemID, "deleted": true}, nil)
+}
+func (s *Server) reviseStandaloneQuote(a map[string]any) (any, error) {
+	id := numID(a, "quote_id")
+	newID, err := s.cloneStandaloneQuoteVersion(id)
 	return content(map[string]any{"quote_id": newID, "version_created": true}, err)
 }
-func (s *Server) acceptStandaloneQuote(a map[string]any) (any, error) {
+func (s *Server) acceptStandaloneQuote(u *auth.User, a map[string]any) (any, error) {
 	id := numID(a, "quote_id")
 	q, err := s.standaloneQuote(id)
 	if err != nil {
@@ -274,6 +506,9 @@ func (s *Server) acceptStandaloneQuote(a map[string]any) (any, error) {
 	}
 	if err == nil {
 		_, err = tx.Exec(`UPDATE quotes SET status='accepted',project_id=$1,accepted_choice_label=$2 WHERE id=$3`, pid, acceptedChoice, id)
+	}
+	if err == nil && u.Role != auth.RoleOwner {
+		_, err = tx.Exec(`INSERT INTO project_permissions(project_id,user_id,access_level) VALUES($1,$2,'write')`, pid, u.ID)
 	}
 	if err != nil {
 		return nil, err

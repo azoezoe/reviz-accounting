@@ -13,7 +13,7 @@ type Milestone struct {
 }
 type BudgetAllocation struct {
 	ID, ProjectID, MilestoneID, CounterpartyID, PlannedAmountCents int64
-	RecipientKind, RecipientName                                   string
+	RecipientKind, RecipientName, ProjectName                      string
 	CounterpartyValid                                              bool
 }
 
@@ -23,7 +23,7 @@ type ProjectBudgetReport struct {
 }
 type BudgetPosting struct {
 	ID, TransactionID, MilestoneID, AllocationID, AmountCents int64
-	Kind, Note                                                string
+	Kind, Note, ProjectName, AllocationName                   string
 	MilestoneValid, AllocationValid                           bool
 }
 
@@ -127,6 +127,26 @@ func ListProjectBudgetAllocations(d *sql.DB, projectID int64) ([]BudgetAllocatio
 	return out, rows.Err()
 }
 
+// ListAllProjectBudgetAllocations supplies the journal split form. Each
+// allocation carries its owning project, so one payment can be shared safely
+// across multiple projects without duplicating a transaction.
+func ListAllProjectBudgetAllocations(d *sql.DB) ([]BudgetAllocation, error) {
+	rows, err := d.Query(`SELECT a.id,a.project_id,p.name,a.recipient_kind,COALESCE(a.counterparty_id,0),a.counterparty_id IS NOT NULL,a.recipient_name,a.planned_amount_cents FROM project_budget_allocations a JOIN projects p ON p.id=a.project_id ORDER BY p.name,a.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BudgetAllocation
+	for rows.Next() {
+		var a BudgetAllocation
+		if err := rows.Scan(&a.ID, &a.ProjectID, &a.ProjectName, &a.RecipientKind, &a.CounterpartyID, &a.CounterpartyValid, &a.RecipientName, &a.PlannedAmountCents); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 func BudgetAllocationBelongsToProject(d *sql.DB, allocationID, projectID int64) (bool, error) {
 	var ok bool
 	err := d.QueryRow(`SELECT EXISTS(SELECT 1 FROM project_budget_allocations WHERE id=? AND project_id=?)`, allocationID, projectID).Scan(&ok)
@@ -158,7 +178,7 @@ func DeleteBudgetAllocation(d *sql.DB, id int64) error {
 }
 
 func ListBudgetPostings(d *sql.DB, transactionID int64) ([]BudgetPosting, error) {
-	rows, e := d.Query(`SELECT id,transaction_id,COALESCE(milestone_id,0),milestone_id IS NOT NULL,COALESCE(budget_allocation_id,0),budget_allocation_id IS NOT NULL,allocation_kind,amount_cents,note FROM transaction_budget_allocations WHERE transaction_id=? ORDER BY id`, transactionID)
+	rows, e := d.Query(`SELECT p.id,p.transaction_id,COALESCE(p.milestone_id,0),p.milestone_id IS NOT NULL,COALESCE(p.budget_allocation_id,0),p.budget_allocation_id IS NOT NULL,p.allocation_kind,p.amount_cents,p.note,COALESCE(pr.name,''),COALESCE(a.recipient_name,'') FROM transaction_budget_allocations p LEFT JOIN project_budget_allocations a ON a.id=p.budget_allocation_id LEFT JOIN projects pr ON pr.id=a.project_id WHERE p.transaction_id=? ORDER BY p.id`, transactionID)
 	if e != nil {
 		return nil, e
 	}
@@ -166,7 +186,7 @@ func ListBudgetPostings(d *sql.DB, transactionID int64) ([]BudgetPosting, error)
 	var out []BudgetPosting
 	for rows.Next() {
 		var p BudgetPosting
-		if e := rows.Scan(&p.ID, &p.TransactionID, &p.MilestoneID, &p.MilestoneValid, &p.AllocationID, &p.AllocationValid, &p.Kind, &p.AmountCents, &p.Note); e != nil {
+		if e := rows.Scan(&p.ID, &p.TransactionID, &p.MilestoneID, &p.MilestoneValid, &p.AllocationID, &p.AllocationValid, &p.Kind, &p.AmountCents, &p.Note, &p.ProjectName, &p.AllocationName); e != nil {
 			return nil, e
 		}
 		out = append(out, p)
@@ -196,6 +216,15 @@ func DeleteBudgetPosting(d *sql.DB, id int64) error {
 func SumBudgetPostingsByKind(d *sql.DB, transactionID int64, kind string) (int64, error) {
 	var total int64
 	err := d.QueryRow(`SELECT COALESCE(SUM(amount_cents),0) FROM transaction_budget_allocations WHERE transaction_id=? AND allocation_kind=?`, transactionID, kind).Scan(&total)
+	return total, err
+}
+
+// SumCashBudgetPostings keeps all cash-backed splits of one payment within
+// its journal amount. Company reserve is an internal income attribution and
+// is therefore excluded.
+func SumCashBudgetPostings(d *sql.DB, transactionID int64) (int64, error) {
+	var total int64
+	err := d.QueryRow(`SELECT COALESCE(SUM(amount_cents),0) FROM transaction_budget_allocations WHERE transaction_id=? AND allocation_kind <> 'company_reserve'`, transactionID).Scan(&total)
 	return total, err
 }
 
@@ -280,8 +309,8 @@ func BudgetPostingCountsForProject(d *sql.DB, projectID int64) (map[int64]int, e
 	rows, err := d.Query(`SELECT t.id,COUNT(p.id)
 		FROM transactions t
 		LEFT JOIN transaction_budget_allocations p ON p.transaction_id=t.id
-		WHERE t.project_id=?
-		GROUP BY t.id`, projectID)
+		WHERE t.project_id=? OR EXISTS (SELECT 1 FROM transaction_budget_allocations p2 JOIN project_budget_allocations a ON a.id=p2.budget_allocation_id WHERE p2.transaction_id=t.id AND a.project_id=?)
+		GROUP BY t.id`, projectID, projectID)
 	if err != nil {
 		return nil, err
 	}

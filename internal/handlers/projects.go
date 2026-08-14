@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/hcchien/reviz-accounting/internal/auth"
 	"github.com/hcchien/reviz-accounting/internal/models"
 	"github.com/hcchien/reviz-accounting/internal/money"
 )
@@ -13,6 +14,16 @@ func (s *Server) projectsList(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.error500(w, err)
 		return
+	}
+	// Owners see every project. Other roles see only explicit grants.
+	if u := auth.FromContext(r.Context()); u != nil && u.Role != auth.RoleOwner {
+		filtered := projs[:0]
+		for _, p := range projs {
+			if ok, _ := models.CanAccessProject(s.DB, p.ID, u.ID, false); ok {
+				filtered = append(filtered, p)
+			}
+		}
+		projs = filtered
 	}
 	s.render(w, r, "projects.html", map[string]any{
 		"Title":    "專案",
@@ -80,6 +91,10 @@ func (s *Server) projectBudgetPage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "找不到專案", http.StatusNotFound)
 		return
+	}
+	canWrite := true
+	if u := auth.FromContext(r.Context()); u != nil && u.Role != auth.RoleOwner {
+		canWrite, _ = models.CanAccessProject(s.DB, id, u.ID, true)
 	}
 	b, err := models.GetProjectBudget(s.DB, id)
 	if err != nil {
@@ -149,7 +164,7 @@ func (s *Server) projectBudgetPage(w http.ResponseWriter, r *http.Request) {
 		views = append(views, allocationView{BudgetAllocation: a, ActualPaid: report.PaidByAllocation[a.ID], Accrued: accrued})
 	}
 	cps, _ := models.ListCounterparties(s.DB, "")
-	s.render(w, r, "project_budget.html", map[string]any{"Title": "專案預算", "Crumbs": []string{"專案", p.Name, "預算"}, "Project": p, "Budget": b, "Allocations": views, "ProjectTransactions": txViews, "JournalAllocationFilter": filterID, "Counterparties": cps, "ActualIncome": report.IncomeCents, "PlannedTotal": plannedTotal, "PlannedCompany": plannedCompany, "Active": "projects"})
+	s.render(w, r, "project_budget.html", map[string]any{"Title": "專案預算", "Crumbs": []string{"專案", p.Name, "預算"}, "Project": p, "Budget": b, "Allocations": views, "ProjectTransactions": txViews, "JournalAllocationFilter": filterID, "Counterparties": cps, "ActualIncome": report.IncomeCents, "PlannedTotal": plannedTotal, "PlannedCompany": plannedCompany, "CanWrite": canWrite, "Active": "projects"})
 }
 
 func (s *Server) projectBudgetSave(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +234,7 @@ func (s *Server) projectCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "name required", http.StatusBadRequest)
 		return
 	}
-	_, err := models.CreateProject(s.DB, &models.Project{
+	projectID, err := models.CreateProject(s.DB, &models.Project{
 		Name:      name,
 		StartDate: models.NullStringFrom(r.FormValue("start_date")),
 		EndDate:   models.NullStringFrom(r.FormValue("end_date")),
@@ -228,6 +243,12 @@ func (s *Server) projectCreate(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.error500(w, err)
 		return
+	}
+	if u := auth.FromContext(r.Context()); u != nil && u.Role != auth.RoleOwner {
+		if err := models.GrantProjectAccess(s.DB, projectID, u.ID, "write"); err != nil {
+			s.error500(w, err)
+			return
+		}
 	}
 	http.Redirect(w, r, "/projects", http.StatusSeeOther)
 }

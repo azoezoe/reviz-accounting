@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hcchien/reviz-accounting/internal/auth"
 	"github.com/hcchien/reviz-accounting/internal/models"
 	"github.com/hcchien/reviz-accounting/internal/money"
 )
@@ -13,6 +14,7 @@ const pageSize = 50
 
 type budgetPostingForm struct {
 	Kind         string
+	ProjectID    string
 	AllocationID string
 	Amount       string
 	Note         string
@@ -32,6 +34,9 @@ func (s *Server) journalList(w http.ResponseWriter, r *http.Request) {
 		Limit:      pageSize,
 		Offset:     int(parseInt64(q.Get("offset"))),
 	}
+	if u := auth.FromContext(r.Context()); u != nil && u.Role != auth.RoleOwner {
+		f.ProjectUserID = u.ID
+	}
 	txs, total, err := models.ListTransactions(s.DB, f)
 	if err != nil {
 		s.error500(w, err)
@@ -50,10 +55,21 @@ func (s *Server) journalList(w http.ResponseWriter, r *http.Request) {
 	// Running balances must be derived from the complete ledger, not just the
 	// current filter/page; otherwise a project filter or page two would show a
 	// misleading historical balance.
-	allTxs, _, err := models.ListTransactions(s.DB, models.TxFilter{})
+	allTxs, _, err := models.ListTransactions(s.DB, models.TxFilter{ProjectUserID: f.ProjectUserID})
 	if err != nil {
 		s.error500(w, err)
 		return
+	}
+	if f.ProjectUserID > 0 {
+		balances = make(map[int64]int64)
+		for _, tx := range allTxs {
+			if tx.ToAccountID.Valid {
+				balances[tx.ToAccountID.Int64] += tx.AmountCents
+			}
+			if tx.FromAccountID.Valid {
+				balances[tx.FromAccountID.Int64] -= tx.AmountCents
+			}
+		}
 	}
 	allViews := journalTransactionViews(allTxs, balances)
 	byID := make(map[int64]journalTransactionView, len(allViews))
@@ -75,6 +91,7 @@ func (s *Server) journalList(w http.ResponseWriter, r *http.Request) {
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
+	projs = s.accessibleProjects(r, projs)
 	counterparties, _ := models.ListCounterparties(s.DB, "")
 
 	// Build month options from distinct YYYY-MM in transactions.
@@ -153,14 +170,24 @@ func (s *Server) journalNew(w http.ResponseWriter, r *http.Request) {
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
+	projs = s.writableProjects(r, projs)
 	counterparties, _ := models.ListCounterparties(s.DB, "")
 	today := time.Now().Format("2006-01-02")
 
+	tx := &models.Transaction{Date: today}
+	if requested := parseInt64(r.URL.Query().Get("project_id")); requested > 0 {
+		for _, p := range projs {
+			if p.ID == requested {
+				tx.ProjectID = models.NullInt64From(requested)
+				break
+			}
+		}
+	}
 	s.render(w, r, "journal_form.html", map[string]any{
 		"Title":          "新增交易",
 		"Crumbs":         []string{"日記帳", "新增交易"},
 		"Mode":           "new",
-		"Tx":             &models.Transaction{Date: today},
+		"Tx":             tx,
 		"Categories":     cats,
 		"Accounts":       accs,
 		"Projects":       projs,
@@ -179,17 +206,43 @@ func (s *Server) journalEdit(w http.ResponseWriter, r *http.Request) {
 	s.renderJournalEdit(w, r, t, &budgetPostingForm{Kind: "partner_payout"})
 }
 
+func (s *Server) accessibleProjects(r *http.Request, all []models.Project) []models.Project {
+	u := auth.FromContext(r.Context())
+	if u == nil || u.Role == auth.RoleOwner {
+		return all
+	}
+	out := all[:0]
+	for _, p := range all {
+		if ok, _ := models.CanAccessProject(s.DB, p.ID, u.ID, false); ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (s *Server) writableProjects(r *http.Request, all []models.Project) []models.Project {
+	u := auth.FromContext(r.Context())
+	if u == nil || u.Role == auth.RoleOwner {
+		return all
+	}
+	out := all[:0]
+	for _, p := range all {
+		if ok, _ := models.CanAccessProject(s.DB, p.ID, u.ID, true); ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func (s *Server) renderJournalEdit(w http.ResponseWriter, r *http.Request, t *models.Transaction, postingForm *budgetPostingForm) {
 	cats, _ := models.ListCategories(s.DB)
 	accs, _ := models.ListAccounts(s.DB, true)
 	projs, _ := models.ListProjects(s.DB)
+	projs = s.writableProjects(r, projs)
 	counterparties, _ := models.ListCounterparties(s.DB, "")
 	attachments, _ := models.ListAttachments(s.DB, t.ID)
 	postings, _ := models.ListBudgetPostings(s.DB, t.ID)
-	var allocations []models.BudgetAllocation
-	if t.ProjectID.Valid {
-		allocations, _ = models.ListProjectBudgetAllocations(s.DB, t.ProjectID.Int64)
-	}
+	allocations, _ := models.ListAllProjectBudgetAllocations(s.DB)
 
 	s.render(w, r, "journal_form.html", map[string]any{
 		"Title":             "編輯交易",
@@ -223,7 +276,7 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "找不到交易", 404)
 		return
 	}
-	form := &budgetPostingForm{Kind: r.FormValue("allocation_kind"), AllocationID: r.FormValue("budget_allocation_id"), Amount: r.FormValue("amount"), Note: r.FormValue("note")}
+	form := &budgetPostingForm{Kind: r.FormValue("allocation_kind"), ProjectID: r.FormValue("project_id"), AllocationID: r.FormValue("budget_allocation_id"), Amount: r.FormValue("amount"), Note: r.FormValue("note")}
 	amt, err := money.ParseCents(r.FormValue("amount"))
 	if err != nil || amt <= 0 {
 		s.journalBudgetPostingError(w, r, t, form, "amount", "請輸入大於 0 的有效分攤金額")
@@ -240,17 +293,18 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 		p.AllocationValid = true
 	}
 	if p.AllocationValid {
-		if !t.ProjectID.Valid {
-			s.journalBudgetPostingError(w, r, t, form, "allocation", "此交易尚未指定專案，無法對應專案預算項目")
+		projectID := parseInt64(r.FormValue("project_id"))
+		if projectID <= 0 {
+			s.journalBudgetPostingError(w, r, t, form, "project", "請選擇此筆分攤所屬專案")
 			return
 		}
-		ok, e := models.BudgetAllocationBelongsToProject(s.DB, p.AllocationID, t.ProjectID.Int64)
+		ok, e := models.BudgetAllocationBelongsToProject(s.DB, p.AllocationID, projectID)
 		if e != nil {
 			s.error500(w, e)
 			return
 		}
 		if !ok {
-			s.journalBudgetPostingError(w, r, t, form, "allocation", "選擇的預算項目不屬於此交易的專案")
+			s.journalBudgetPostingError(w, r, t, form, "allocation", "選擇的預算項目不屬於此分攤專案")
 			return
 		}
 	}
@@ -270,10 +324,10 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	// A company reserve is a reporting attribution of income, not a second
-	// cash movement. Other types can be split, but each cash-backed type must
-	// still fit within this journal transaction.
+	// cash movement. All other types share the same payment amount, including
+	// rows attributed to different projects.
 	if kind != "company_reserve" {
-		used, err := models.SumBudgetPostingsByKind(s.DB, txID, kind)
+		used, err := models.SumCashBudgetPostings(s.DB, txID)
 		if err != nil {
 			s.error500(w, err)
 			return
@@ -310,6 +364,9 @@ func (s *Server) journalCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.Code = code
+	if !s.canWriteTransactionProject(w, r, t.ProjectID) {
+		return
+	}
 	if _, err := models.CreateTransaction(s.DB, t); err != nil {
 		s.error500(w, err)
 		return
@@ -329,11 +386,35 @@ func (s *Server) journalUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t.ID = id
+	if !s.canWriteTransactionProject(w, r, t.ProjectID) {
+		return
+	}
 	if err := models.UpdateTransaction(s.DB, t); err != nil {
 		s.error500(w, err)
 		return
 	}
 	http.Redirect(w, r, "/journal", http.StatusSeeOther)
+}
+
+func (s *Server) canWriteTransactionProject(w http.ResponseWriter, r *http.Request, projectID sql.NullInt64) bool {
+	u := auth.FromContext(r.Context())
+	if u == nil || u.Role == auth.RoleOwner {
+		return true
+	}
+	if !projectID.Valid {
+		http.Error(w, "accountant 必須將交易歸屬於有寫入權限的專案", http.StatusForbidden)
+		return false
+	}
+	ok, err := models.CanAccessProject(s.DB, projectID.Int64, u.ID, true)
+	if err != nil {
+		s.error500(w, err)
+		return false
+	}
+	if !ok {
+		http.Error(w, "您沒有此專案的寫入權", http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 func (s *Server) journalDelete(w http.ResponseWriter, r *http.Request) {

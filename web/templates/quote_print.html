@@ -143,6 +143,11 @@
   .invoice-table .col-item { width: 22%; }
   .invoice-table .col-description { width: 54%; }
   .invoice-table .col-amount { width: 18%; }
+  .invoice-table--unit-prices .col-item { width: 18%; }
+  .invoice-table--unit-prices .col-description { width: 30%; }
+  .invoice-table--unit-prices .col-quantity { width: 15%; }
+  .invoice-table--unit-prices .col-unit-price { width: 15%; }
+  .invoice-table--unit-prices .col-amount { width: 16%; }
   .invoice-table .right {
     text-align: right;
     white-space: nowrap;
@@ -332,15 +337,25 @@
 
   <p class="invoice-currency"><strong>{{if eq .Quote.QuoteLanguage "en"}}Currency{{else}}幣別{{end}}:</strong> {{.Quote.Currency}}</p>
 
-  <table class="invoice-table">
+  <table class="invoice-table{{if .Quote.ShowUnitPrice}} invoice-table--unit-prices{{end}}">
+    <colgroup>
+      <col class="col-index">
+      <col class="col-item">
+      <col class="col-description">
+      {{if .Quote.ShowUnitPrice}}
+      <col class="col-quantity">
+      <col class="col-unit-price">
+      {{end}}
+      <col class="col-amount">
+    </colgroup>
     <thead>
       <tr>
         <th class="col-index">#</th>
         <th class="col-item">{{if eq .Quote.QuoteLanguage "en"}}Item{{else}}項目{{end}}</th>
         <th class="col-description">{{if eq .Quote.QuoteLanguage "en"}}Description{{else}}說明{{end}}</th>
         {{if .Quote.ShowUnitPrice}}
-        <th class="right">{{if eq .Quote.QuoteLanguage "en"}}Quantity{{else}}數量{{end}}</th>
-        <th class="right">{{if eq .Quote.QuoteLanguage "en"}}Unit Price{{else}}單價{{end}}</th>
+        <th class="col-quantity right">{{if eq .Quote.QuoteLanguage "en"}}Quantity{{else}}數量{{end}}</th>
+        <th class="col-unit-price right">{{if eq .Quote.QuoteLanguage "en"}}Unit Price{{else}}單價{{end}}</th>
         {{end}}
         <th class="col-amount right">{{if eq .Quote.QuoteLanguage "en"}}Amount{{else}}金額{{end}}</th>
       </tr>
@@ -355,7 +370,7 @@
         </td>
         <td>{{$item.Detail}}</td>
         {{if $.Quote.ShowUnitPrice}}
-        <td class="right">{{printf "%.2f" $item.Quantity}} {{$item.Unit}}</td>
+        <td class="right">{{quoteQuantity $item.Quantity}} {{$item.Unit}}</td>
         <td class="right">{{currencySymbol $.Quote.Currency}}{{quoteMoney $item.UnitPriceCents}}</td>
         {{end}}
         <td class="right">{{currencySymbol $.Quote.Currency}}{{quoteMoney $item.LineTotalCents}}</td>

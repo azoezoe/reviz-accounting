@@ -61,7 +61,7 @@ func TestQuoteUpdateSavesCompanyDefaultsAndIntegerCheckbox(t *testing.T) {
 			quote_date TEXT, valid_until TEXT, issuer_contact TEXT, issuer_email TEXT,
 			issuer_tax_id TEXT, project_content TEXT, terms TEXT, signature_label TEXT,
 			quote_language TEXT, quote_type TEXT, show_unit_price INTEGER,
-			personal_name TEXT, personal_contact TEXT, updated_at TEXT, status TEXT
+			personal_name TEXT, personal_contact TEXT, contact_user_id INTEGER, updated_at TEXT, status TEXT
 		);
 		INSERT INTO quotes(id,status) VALUES(7,'draft');
 	`)
@@ -208,7 +208,7 @@ func TestQuoteItemNumbersRestartForEveryQuote(t *testing.T) {
 			project_id INTEGER, quote_date TEXT, valid_until TEXT, issuer_contact TEXT,
 			issuer_email TEXT, issuer_tax_id TEXT, project_content TEXT, terms TEXT,
 			signature_label TEXT, quote_language TEXT, quote_type TEXT, show_unit_price INTEGER,
-			personal_name TEXT, personal_contact TEXT, accepted_choice_label TEXT
+			personal_name TEXT, personal_contact TEXT, accepted_choice_label TEXT, contact_user_id INTEGER
 		);
 		CREATE TABLE quote_items (
 			id INTEGER PRIMARY KEY, quote_id INTEGER, description TEXT, detail TEXT,
@@ -225,8 +225,8 @@ func TestQuoteItemNumbersRestartForEveryQuote(t *testing.T) {
 			content_type TEXT, size_bytes INTEGER, uploaded_by_id INTEGER, created_at TEXT
 		);
 		INSERT INTO quotes VALUES
-			(1,'Q-1','第一張','客戶','ReViz','TWD','percent',0,0,'','draft',1,NULL,NULL,'2026-07-30',NULL,'','','','','','簽核','zh-TW','company',0,'','',''),
-			(2,'Q-2','第二張','客戶','ReViz','TWD','percent',0,0,'','draft',1,NULL,NULL,'2026-07-30',NULL,'','','','','','簽核','zh-TW','company',0,'','','');
+			(1,'Q-1','第一張','客戶','ReViz','TWD','percent',0,0,'','draft',1,NULL,NULL,'2026-07-30',NULL,'','','','','','簽核','zh-TW','company',0,'','','',NULL),
+			(2,'Q-2','第二張','客戶','ReViz','TWD','percent',0,0,'','draft',1,NULL,NULL,'2026-07-30',NULL,'','','','','','簽核','zh-TW','company',0,'','','',NULL);
 		INSERT INTO quote_items(id,quote_id,description,detail,quantity,unit,unit_price_cents,sort_order,is_choice) VALUES
 			(101,1,'第一張第一項','',1,'式',100,0,0),
 			(102,1,'第一張第二項','',1,'式',100,1,0),
@@ -273,7 +273,7 @@ func TestQuoteChoiceItemsProduceAlternativeTotals(t *testing.T) {
 			project_id INTEGER, quote_date TEXT, valid_until TEXT, issuer_contact TEXT,
 			issuer_email TEXT, issuer_tax_id TEXT, project_content TEXT, terms TEXT,
 			signature_label TEXT, quote_language TEXT, quote_type TEXT, show_unit_price INTEGER,
-			personal_name TEXT, personal_contact TEXT, accepted_choice_label TEXT
+			personal_name TEXT, personal_contact TEXT, accepted_choice_label TEXT, contact_user_id INTEGER
 		);
 		CREATE TABLE quote_items (
 			id INTEGER PRIMARY KEY, quote_id INTEGER, description TEXT, detail TEXT,
@@ -287,7 +287,7 @@ func TestQuoteChoiceItemsProduceAlternativeTotals(t *testing.T) {
 		CREATE TABLE projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, note TEXT);
 		CREATE TABLE project_budgets (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER, total_amount_cents INTEGER, note TEXT);
 		INSERT INTO quotes VALUES
-			(1,'Q-CHOICE','方案報價','客戶','ReViz','TWD','percent',10,5,'','draft',1,NULL,NULL,'2026-08-14',NULL,'','','','','','簽核','zh-TW','company',0,'','','');
+			(1,'Q-CHOICE','方案報價','客戶','ReViz','TWD','percent',10,5,'','draft',1,NULL,NULL,'2026-08-14',NULL,'','','','','','簽核','zh-TW','company',0,'','','',NULL);
 		INSERT INTO quote_items(id,quote_id,description,detail,quantity,unit,unit_price_cents,sort_order,is_choice) VALUES
 			(1,1,'共同項目','',1,'式',10000,0,0),
 			(2,1,'基本方案','',1,'式',20000,1,1),
