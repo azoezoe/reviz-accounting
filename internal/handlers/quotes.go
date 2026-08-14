@@ -17,6 +17,12 @@ type quoteItemView struct {
 	ID, UnitPriceCents, LineTotalCents int64
 	Description, Detail, Unit          string
 	Quantity                           float64
+	IsChoice                           bool
+	ChoiceLabel                        string
+}
+type quoteTotalView struct {
+	Label, ChoiceDescription                           string
+	SubtotalCents, DiscountCents, TaxCents, TotalCents int64
 }
 type quoteSpecificationView struct {
 	ID                                                int64
@@ -32,36 +38,67 @@ type quoteView struct {
 	QuoteDate, ValidUntil, IssuerContact, IssuerEmail, IssuerTaxID               string
 	ProjectContent, Terms, SignatureLabel                                        string
 	QuoteLanguage, QuoteType, PersonalName, PersonalContact                      string
-	ShowUnitPrice                                                                bool
+	AcceptedChoiceLabel                                                          string
+	ShowUnitPrice, HasChoices                                                    bool
 	ContactUserID                                                                int64
 	Specifications                                                               []quoteSpecificationView
+	TotalOptions                                                                 []quoteTotalView
 }
 
 func quoteItemDisplayNumber(index int) int {
 	return index + 1
 }
 
+func quoteChoiceLabel(index int) string {
+	if index >= 0 && index < 26 {
+		return string(rune('A' + index))
+	}
+	return strconv.Itoa(index + 1)
+}
+
+func calculateQuoteTotal(subtotal int64, discountType string, discountValue, taxRate float64) quoteTotalView {
+	result := quoteTotalView{SubtotalCents: subtotal}
+	if discountType == "percent" {
+		result.DiscountCents = int64(float64(subtotal) * discountValue / 100)
+	} else {
+		result.DiscountCents = int64(discountValue * 100)
+	}
+	taxable := subtotal - result.DiscountCents
+	result.TaxCents = int64(float64(taxable) * taxRate / 100)
+	result.TotalCents = taxable + result.TaxCents
+	return result
+}
+
 func (s *Server) loadQuote(id int64) (quoteView, error) {
 	var q quoteView
 	var showUnitPrice int
-	err := s.DB.QueryRow(`SELECT id,quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,status,version_no,COALESCE(parent_quote_id,0),COALESCE(project_id,0),quote_date,COALESCE(valid_until,''),issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,COALESCE(contact_user_id,0) FROM quotes WHERE id=$1`, id).
-		Scan(&q.ID, &q.QuoteNo, &q.Title, &q.ClientName, &q.IssuerName, &q.Currency, &q.DiscountType, &q.DiscountValue, &q.TaxRate, &q.Note, &q.Status, &q.VersionNo, &q.ParentQuoteID, &q.ProjectID, &q.QuoteDate, &q.ValidUntil, &q.IssuerContact, &q.IssuerEmail, &q.IssuerTaxID, &q.ProjectContent, &q.Terms, &q.SignatureLabel, &q.QuoteLanguage, &q.QuoteType, &showUnitPrice, &q.PersonalName, &q.PersonalContact, &q.ContactUserID)
+	err := s.DB.QueryRow(`SELECT id,quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,status,version_no,COALESCE(parent_quote_id,0),COALESCE(project_id,0),quote_date,COALESCE(valid_until,''),issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,COALESCE(accepted_choice_label,''),COALESCE(contact_user_id,0) FROM quotes WHERE id=$1`, id).
+		Scan(&q.ID, &q.QuoteNo, &q.Title, &q.ClientName, &q.IssuerName, &q.Currency, &q.DiscountType, &q.DiscountValue, &q.TaxRate, &q.Note, &q.Status, &q.VersionNo, &q.ParentQuoteID, &q.ProjectID, &q.QuoteDate, &q.ValidUntil, &q.IssuerContact, &q.IssuerEmail, &q.IssuerTaxID, &q.ProjectContent, &q.Terms, &q.SignatureLabel, &q.QuoteLanguage, &q.QuoteType, &showUnitPrice, &q.PersonalName, &q.PersonalContact, &q.AcceptedChoiceLabel, &q.ContactUserID)
 	if err != nil {
 		return q, err
 	}
 	q.ShowUnitPrice = showUnitPrice == 1
-	rows, err := s.DB.Query(`SELECT id,description,detail,quantity,unit,unit_price_cents FROM quote_items WHERE quote_id=$1 ORDER BY sort_order,id`, id)
+	rows, err := s.DB.Query(`SELECT id,description,detail,quantity,unit,unit_price_cents,is_choice FROM quote_items WHERE quote_id=$1 ORDER BY sort_order,id`, id)
 	if err != nil {
 		return q, err
 	}
 	defer rows.Close()
+	var baseSubtotal int64
+	var choiceItems []quoteItemView
 	for rows.Next() {
 		var x quoteItemView
-		if err := rows.Scan(&x.ID, &x.Description, &x.Detail, &x.Quantity, &x.Unit, &x.UnitPriceCents); err != nil {
+		var isChoice int
+		if err := rows.Scan(&x.ID, &x.Description, &x.Detail, &x.Quantity, &x.Unit, &x.UnitPriceCents, &isChoice); err != nil {
 			return q, err
 		}
+		x.IsChoice = isChoice == 1
 		x.LineTotalCents = int64(x.Quantity * float64(x.UnitPriceCents))
-		q.SubtotalCents += x.LineTotalCents
+		if x.IsChoice {
+			x.ChoiceLabel = quoteChoiceLabel(len(choiceItems))
+			choiceItems = append(choiceItems, x)
+		} else {
+			baseSubtotal += x.LineTotalCents
+		}
 		q.Items = append(q.Items, x)
 	}
 	specRows, err := s.DB.Query(`SELECT id,feature,use_case,capability,implementation_steps FROM quote_specifications WHERE quote_id=$1 ORDER BY sort_order,id`, id)
@@ -82,14 +119,22 @@ func (s *Server) loadQuote(id int64) (quoteView, error) {
 	if err := rows.Err(); err != nil {
 		return q, err
 	}
-	if q.DiscountType == "percent" {
-		q.DiscountCents = int64(float64(q.SubtotalCents) * q.DiscountValue / 100)
+	q.HasChoices = len(choiceItems) >= 2
+	if q.HasChoices {
+		for _, item := range choiceItems {
+			total := calculateQuoteTotal(baseSubtotal+item.LineTotalCents, q.DiscountType, q.DiscountValue, q.TaxRate)
+			total.Label = item.ChoiceLabel
+			total.ChoiceDescription = item.Description
+			q.TotalOptions = append(q.TotalOptions, total)
+		}
 	} else {
-		q.DiscountCents = int64(q.DiscountValue * 100)
+		for _, item := range choiceItems {
+			baseSubtotal += item.LineTotalCents
+		}
+		q.TotalOptions = append(q.TotalOptions, calculateQuoteTotal(baseSubtotal, q.DiscountType, q.DiscountValue, q.TaxRate))
 	}
-	taxable := q.SubtotalCents - q.DiscountCents
-	q.TaxCents = int64(float64(taxable) * q.TaxRate / 100)
-	q.TotalCents = taxable + q.TaxCents
+	primary := q.TotalOptions[0]
+	q.SubtotalCents, q.DiscountCents, q.TaxCents, q.TotalCents = primary.SubtotalCents, primary.DiscountCents, primary.TaxCents, primary.TotalCents
 	return q, nil
 }
 
@@ -233,7 +278,7 @@ func (s *Server) quoteItemCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "報價項目格式錯誤", 400)
 		return
 	}
-	_, err := s.DB.Exec(`INSERT INTO quote_items(quote_id,description,detail,quantity,unit,unit_price_cents,sort_order) SELECT $1,$2,$3,$4,$5,$6,COUNT(*) FROM quote_items WHERE quote_id=$1`, id, r.FormValue("description"), r.FormValue("detail"), qty, defaultString(r.FormValue("unit"), "式"), price)
+	_, err := s.DB.Exec(`INSERT INTO quote_items(quote_id,description,detail,quantity,unit,unit_price_cents,is_choice,sort_order) SELECT $1,$2,$3,$4,$5,$6,$7,COUNT(*) FROM quote_items WHERE quote_id=$1`, id, r.FormValue("description"), r.FormValue("detail"), qty, defaultString(r.FormValue("unit"), "式"), price, checkboxInt(r.FormValue("is_choice")))
 	if err != nil {
 		s.error500(w, err)
 		return
@@ -249,7 +294,7 @@ func (s *Server) quoteItemUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "報價項目格式錯誤", http.StatusBadRequest)
 		return
 	}
-	result, err := s.DB.Exec(`UPDATE quote_items SET description=$1,detail=$2,quantity=$3,unit=$4,unit_price_cents=$5 WHERE id=$6 AND quote_id=$7 AND EXISTS (SELECT 1 FROM quotes WHERE id=$7 AND status='draft')`, strings.TrimSpace(r.FormValue("description")), r.FormValue("detail"), qty, defaultString(r.FormValue("unit"), "式"), price, itemID, quoteID)
+	result, err := s.DB.Exec(`UPDATE quote_items SET description=$1,detail=$2,quantity=$3,unit=$4,unit_price_cents=$5,is_choice=$6 WHERE id=$7 AND quote_id=$8 AND EXISTS (SELECT 1 FROM quotes WHERE id=$8 AND status='draft')`, strings.TrimSpace(r.FormValue("description")), r.FormValue("detail"), qty, defaultString(r.FormValue("unit"), "式"), price, checkboxInt(r.FormValue("is_choice")), itemID, quoteID)
 	if err != nil {
 		s.error500(w, err)
 		return
@@ -416,7 +461,7 @@ func cloneQuoteVersion(tx *sql.Tx, q quoteView) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if _, err = tx.Exec(`INSERT INTO quote_items(quote_id,description,detail,quantity,unit,unit_price_cents,sort_order) SELECT $1,description,detail,quantity,unit,unit_price_cents,sort_order FROM quote_items WHERE quote_id=$2`, newID, q.ID); err != nil {
+	if _, err = tx.Exec(`INSERT INTO quote_items(quote_id,description,detail,quantity,unit,unit_price_cents,is_choice,sort_order) SELECT $1,description,detail,quantity,unit,unit_price_cents,is_choice,sort_order FROM quote_items WHERE quote_id=$2`, newID, q.ID); err != nil {
 		return 0, err
 	}
 	if _, err = tx.Exec(`INSERT INTO quote_specifications(quote_id,feature,use_case,capability,implementation_steps,sort_order) SELECT $1,feature,use_case,capability,implementation_steps,sort_order FROM quote_specifications WHERE quote_id=$2`, newID, q.ID); err != nil {
@@ -479,16 +524,37 @@ func (s *Server) quoteAccept(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = q.QuoteNo
 	}
+	acceptedChoice := ""
+	acceptedTotal := q.TotalCents
+	if q.HasChoices {
+		acceptedChoice = strings.ToUpper(strings.TrimSpace(r.FormValue("choice_label")))
+		found := false
+		for _, option := range q.TotalOptions {
+			if option.Label == acceptedChoice {
+				acceptedTotal = option.TotalCents
+				found = true
+				break
+			}
+		}
+		if !found {
+			http.Error(w, "請選擇客戶同意的報價方案", http.StatusBadRequest)
+			return
+		}
+	}
 	var projectID int64
 	tx, err := s.DB.Begin()
 	if err == nil {
 		err = tx.QueryRow(`INSERT INTO projects(name,note) VALUES($1,$2) RETURNING id`, name, "由報價 "+q.QuoteNo+" 客戶同意後建立").Scan(&projectID)
 	}
 	if err == nil {
-		_, err = tx.Exec(`INSERT INTO project_budgets(project_id,total_amount_cents,note) VALUES($1,$2,$3)`, projectID, q.TotalCents, "由報價單自動建立")
+		note := "由報價單自動建立"
+		if acceptedChoice != "" {
+			note += "（方案 " + acceptedChoice + "）"
+		}
+		_, err = tx.Exec(`INSERT INTO project_budgets(project_id,total_amount_cents,note) VALUES($1,$2,$3)`, projectID, acceptedTotal, note)
 	}
 	if err == nil {
-		_, err = tx.Exec(`UPDATE quotes SET status='accepted',project_id=$1 WHERE id=$2`, projectID, id)
+		_, err = tx.Exec(`UPDATE quotes SET status='accepted',project_id=$1,accepted_choice_label=$2 WHERE id=$3`, projectID, acceptedChoice, id)
 	}
 	if err == nil {
 		u := auth.FromContext(r.Context())

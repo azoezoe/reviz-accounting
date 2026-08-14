@@ -110,34 +110,69 @@ func (s *Server) standaloneQuote(id int64) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.Query(`SELECT id,description,quantity,unit,unit_price_cents FROM quote_items WHERE quote_id=$1 ORDER BY sort_order,id`, id)
+	rows, err := s.DB.Query(`SELECT id,description,quantity,unit,unit_price_cents,is_choice FROM quote_items WHERE quote_id=$1 ORDER BY sort_order,id`, id)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var items []map[string]any
-	var subtotal int64
+	var baseSubtotal int64
+	var choiceLines []int64
 	for rows.Next() {
 		var iid, price int64
+		var isChoice int
 		var desc, unit string
 		var qty float64
-		if err := rows.Scan(&iid, &desc, &qty, &unit, &price); err != nil {
+		if err := rows.Scan(&iid, &desc, &qty, &unit, &price, &isChoice); err != nil {
 			return nil, err
 		}
 		line := int64(qty * float64(price))
-		subtotal += line
-		items = append(items, map[string]any{"id": iid, "description": desc, "quantity": qty, "unit": unit, "unit_price_cents": price, "line_total_cents": line})
+		choiceLabel := ""
+		if isChoice == 1 {
+			choiceLabel = standaloneChoiceLabel(len(choiceLines))
+			choiceLines = append(choiceLines, line)
+		} else {
+			baseSubtotal += line
+		}
+		items = append(items, map[string]any{"id": iid, "description": desc, "quantity": qty, "unit": unit, "unit_price_cents": price, "line_total_cents": line, "is_choice": isChoice == 1, "choice_label": choiceLabel})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	discount := int64(q.Discount * 100)
-	if q.DiscountType == "percent" {
-		discount = int64(float64(subtotal) * q.Discount / 100)
+	if len(choiceLines) < 2 {
+		for _, line := range choiceLines {
+			baseSubtotal += line
+		}
 	}
-	taxable := subtotal - discount
-	tax := int64(float64(taxable) * q.Tax / 100)
-	return map[string]any{"id": q.ID, "quote_no": q.QuoteNo, "title": q.Title, "client_name": q.Client, "issuer_name": q.Issuer, "currency": q.Currency, "status": q.Status, "version_no": q.Version, "project_id": q.ProjectID, "subtotal_cents": subtotal, "discount_cents": discount, "tax_cents": tax, "total_cents": taxable + tax, "items": items}, nil
+	choiceCount := len(choiceLines)
+	if choiceCount < 2 {
+		choiceCount = 1
+	}
+	var totals []map[string]any
+	for index := 0; index < choiceCount; index++ {
+		subtotal := baseSubtotal
+		label := ""
+		if len(choiceLines) >= 2 {
+			subtotal += choiceLines[index]
+			label = standaloneChoiceLabel(index)
+		}
+		discount := int64(q.Discount * 100)
+		if q.DiscountType == "percent" {
+			discount = int64(float64(subtotal) * q.Discount / 100)
+		}
+		taxable := subtotal - discount
+		tax := int64(float64(taxable) * q.Tax / 100)
+		totals = append(totals, map[string]any{"label": label, "subtotal_cents": subtotal, "discount_cents": discount, "tax_cents": tax, "total_cents": taxable + tax})
+	}
+	primary := totals[0]
+	return map[string]any{"id": q.ID, "quote_no": q.QuoteNo, "title": q.Title, "client_name": q.Client, "issuer_name": q.Issuer, "currency": q.Currency, "status": q.Status, "version_no": q.Version, "project_id": q.ProjectID, "subtotal_cents": primary["subtotal_cents"], "discount_cents": primary["discount_cents"], "tax_cents": primary["tax_cents"], "total_cents": primary["total_cents"], "has_choices": len(choiceLines) >= 2, "total_options": totals, "items": items}, nil
+}
+
+func standaloneChoiceLabel(index int) string {
+	if index >= 0 && index < 26 {
+		return string(rune('A' + index))
+	}
+	return fmt.Sprintf("%d", index+1)
 }
 
 func (s *Server) createStandaloneQuote(u *auth.User, a map[string]any) (any, error) {
@@ -265,7 +300,7 @@ func (s *Server) cloneStandaloneQuoteVersion(id int64) (int64, error) {
 	newNo := fmt.Sprintf("%s-R%d", strings.Split(quoteNo, "-R")[0], version+1)
 	err = tx.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id) SELECT ?,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,?,id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id FROM quotes WHERE id=? RETURNING id`, newNo, version+1, id).Scan(&newID)
 	if err == nil {
-		_, err = tx.Exec(`INSERT INTO quote_items(quote_id,description,detail,quantity,unit,unit_price_cents,sort_order) SELECT ?,description,detail,quantity,unit,unit_price_cents,sort_order FROM quote_items WHERE quote_id=?`, newID, id)
+		_, err = tx.Exec(`INSERT INTO quote_items(quote_id,description,detail,quantity,unit,unit_price_cents,is_choice,sort_order) SELECT ?,description,detail,quantity,unit,unit_price_cents,is_choice,sort_order FROM quote_items WHERE quote_id=?`, newID, id)
 	}
 	if err == nil {
 		_, err = tx.Exec(`INSERT INTO quote_specifications(quote_id,feature,use_case,capability,implementation_steps,sort_order) SELECT ?,feature,use_case,capability,implementation_steps,sort_order FROM quote_specifications WHERE quote_id=?`, newID, id)
@@ -349,8 +384,12 @@ func (s *Server) createStandaloneQuoteItem(a map[string]any) (any, error) {
 	if !draft {
 		return nil, fmtErr("報價不存在或版本已鎖定")
 	}
+	isChoice := 0
+	if boolean(a, "is_choice") {
+		isChoice = 1
+	}
 	var itemID int64
-	err := s.DB.QueryRow(`INSERT INTO quote_items(quote_id,description,quantity,unit,unit_price_cents,sort_order) SELECT $1,$2,$3,$4,$5,COUNT(*) FROM quote_items WHERE quote_id=$1 RETURNING id`, id, desc, qty, defaultText(str(a, "unit"), "式"), price).Scan(&itemID)
+	err := s.DB.QueryRow(`INSERT INTO quote_items(quote_id,description,quantity,unit,unit_price_cents,is_choice,sort_order) SELECT $1,$2,$3,$4,$5,$6,COUNT(*) FROM quote_items WHERE quote_id=$1 RETURNING id`, id, desc, qty, defaultText(str(a, "unit"), "式"), price, isChoice).Scan(&itemID)
 	return content(map[string]any{"item_id": itemID, "quote_id": id}, err)
 }
 
@@ -383,6 +422,9 @@ func (s *Server) updateStandaloneQuoteItem(a map[string]any) (any, error) {
 			return nil, fmtErr("unit_price_cents 不可為負數")
 		}
 		sets, args = append(sets, "unit_price_cents=?"), append(args, numID(a, "unit_price_cents"))
+	}
+	if _, ok := a["is_choice"]; ok {
+		sets, args = append(sets, "is_choice=?"), append(args, boolToInt(boolean(a, "is_choice")))
 	}
 	if len(sets) == 0 {
 		return nil, fmtErr("至少提供一個要更新的欄位")
@@ -433,6 +475,22 @@ func (s *Server) acceptStandaloneQuote(u *auth.User, a map[string]any) (any, err
 	if name == "" {
 		name = q["quote_no"].(string)
 	}
+	acceptedChoice := ""
+	acceptedTotal := q["total_cents"].(int64)
+	if q["has_choices"].(bool) {
+		acceptedChoice = strings.ToUpper(strings.TrimSpace(str(a, "choice_label")))
+		found := false
+		for _, option := range q["total_options"].([]map[string]any) {
+			if option["label"] == acceptedChoice {
+				acceptedTotal = option["total_cents"].(int64)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmtErr("有多個選擇項目時，choice_label 必須指定客戶同意的方案")
+		}
+	}
 	tx, err := s.DB.Begin()
 	if err != nil {
 		return nil, err
@@ -440,10 +498,14 @@ func (s *Server) acceptStandaloneQuote(u *auth.User, a map[string]any) (any, err
 	defer tx.Rollback()
 	var pid int64
 	if err = tx.QueryRow(`INSERT INTO projects(name,note) VALUES($1,$2) RETURNING id`, name, "由報價 "+q["quote_no"].(string)+" 客戶同意後建立").Scan(&pid); err == nil {
-		_, err = tx.Exec(`INSERT INTO project_budgets(project_id,total_amount_cents,note) VALUES($1,$2,$3)`, pid, q["total_cents"].(int64), "由報價單自動建立")
+		note := "由報價單自動建立"
+		if acceptedChoice != "" {
+			note += "（方案 " + acceptedChoice + "）"
+		}
+		_, err = tx.Exec(`INSERT INTO project_budgets(project_id,total_amount_cents,note) VALUES($1,$2,$3)`, pid, acceptedTotal, note)
 	}
 	if err == nil {
-		_, err = tx.Exec(`UPDATE quotes SET status='accepted',project_id=$1 WHERE id=$2`, pid, id)
+		_, err = tx.Exec(`UPDATE quotes SET status='accepted',project_id=$1,accepted_choice_label=$2 WHERE id=$3`, pid, acceptedChoice, id)
 	}
 	if err == nil && u.Role != auth.RoleOwner {
 		_, err = tx.Exec(`INSERT INTO project_permissions(project_id,user_id,access_level) VALUES($1,$2,'write')`, pid, u.ID)

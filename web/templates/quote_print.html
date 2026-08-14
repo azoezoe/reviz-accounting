@@ -152,6 +152,16 @@
     text-align: right;
     white-space: nowrap;
   }
+  .invoice-choice-badge {
+    display: inline-block;
+    margin-top: 1mm;
+    padding: .5mm 1.5mm;
+    border-radius: 3mm;
+    background: #e9f8f5;
+    color: #0c6c62;
+    font-size: 9px;
+    font-weight: 700;
+  }
   .invoice-totals {
     display: grid;
     justify-items: end;
@@ -167,6 +177,12 @@
     color: #0c5f57;
     font-size: 18px;
     font-weight: 900;
+  }
+  .invoice-totals .final small {
+    margin-right: 2mm;
+    color: #42655f;
+    font-size: 11px;
+    font-weight: 600;
   }
   .invoice-note {
     margin: 3mm 0 0;
@@ -348,7 +364,10 @@
       {{range $index, $item := .Quote.Items}}
       <tr>
         <td>{{quoteItemNo $index}}</td>
-        <td>{{$item.Description}}</td>
+        <td>
+          {{$item.Description}}
+          {{if $item.IsChoice}}<br><span class="invoice-choice-badge">{{if eq $.Quote.QuoteLanguage "en"}}Option{{else}}選擇項目{{end}} {{$item.ChoiceLabel}}</span>{{end}}
+        </td>
         <td>{{$item.Detail}}</td>
         {{if $.Quote.ShowUnitPrice}}
         <td class="right">{{quoteQuantity $item.Quantity}} {{$item.Unit}}</td>
@@ -361,10 +380,16 @@
   </table>
 
   <div class="invoice-totals">
+    {{if .Quote.HasChoices}}
+    {{range .Quote.TotalOptions}}
+    <p class="final"><small>{{if eq $.Quote.QuoteLanguage "en"}}Option{{else}}方案{{end}} {{.Label}} · {{.ChoiceDescription}}</small>{{if eq $.Quote.QuoteLanguage "en"}}Total{{else}}總計{{end}} {{.Label}}: {{currencySymbol $.Quote.Currency}}{{quoteMoney .TotalCents}}</p>
+    {{end}}
+    {{else}}
     <p>Subtotal: {{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.SubtotalCents}}</p>
     {{if ne .Quote.DiscountCents 0}}<p>Discount: -{{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.DiscountCents}}</p>{{end}}
     {{if ne .Quote.TaxCents 0}}<p>Tax: {{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.TaxCents}}</p>{{end}}
     <p class="final">Total: {{currencySymbol .Quote.Currency}}{{quoteMoney .Quote.TotalCents}}</p>
+    {{end}}
   </div>
 
   {{if .Quote.Note}}<p class="invoice-note"><strong>{{if eq .Quote.QuoteLanguage "en"}}Notes{{else}}備註{{end}}：</strong>{{.Quote.Note}}</p>{{end}}
