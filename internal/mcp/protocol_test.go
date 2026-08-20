@@ -81,6 +81,16 @@ func TestViewerCannotCallManagementWriteTool(t *testing.T) {
 	}
 }
 
+func TestViewerCannotUseTransactionLookupTools(t *testing.T) {
+	s := &Server{}
+	for _, name := range []string{"list_accounts", "list_categories"} {
+		_, err := s.tool(&auth.User{Role: auth.RoleViewer}, name, nil)
+		if err == nil || err.Error() != "權限不足" {
+			t.Errorf("viewer %s error = %v, want 權限不足", name, err)
+		}
+	}
+}
+
 func TestAuditUsesActualMCPToolName(t *testing.T) {
 	raw := []byte(`{"name":"accept_project_quote","arguments":{"project_id":1,"quote_id":2}}`)
 	if got := auditToolName("tools/call", raw); got != "accept_project_quote" {

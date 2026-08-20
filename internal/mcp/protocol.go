@@ -93,13 +93,17 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 	}
 	switch name {
 	case "list_accounts":
-		if u.Role != auth.RoleOwner {
+		// Account IDs are required to create a transaction. The Web journal
+		// exposes this same read-only lookup to accountants.
+		if !u.AtLeast(auth.RoleAccountant) {
 			return nil, fmtErr("權限不足")
 		}
 		v, e := models.ListAccounts(s.DB, true)
 		return content(v, e)
 	case "list_categories":
-		if u.Role != auth.RoleOwner {
+		// Category IDs are required to create a transaction; management of
+		// categories remains owner-only in the Web app and MCP.
+		if !u.AtLeast(auth.RoleAccountant) {
 			return nil, fmtErr("權限不足")
 		}
 		v, e := models.ListCategories(s.DB)
@@ -260,8 +264,8 @@ func tools() []map[string]any {
 	obj := map[string]any{"type": "object"}
 	req := func(keys ...string) map[string]any { return map[string]any{"type": "object", "required": keys} }
 	return []map[string]any{
-		{"name": "list_accounts", "description": "列出帳戶", "inputSchema": obj},
-		{"name": "list_categories", "description": "列出收入、成本與費用分類", "inputSchema": obj},
+		{"name": "list_accounts", "description": "列出可用帳戶與 ID；建立交易時需要 from_account_id 或 to_account_id。accountant 以上。", "inputSchema": obj},
+		{"name": "list_categories", "description": "列出收入、成本與費用分類及 ID；建立交易時可帶 category_id。accountant 以上。", "inputSchema": obj},
 		{"name": "list_projects", "description": "列出專案", "inputSchema": obj},
 		{"name": "create_project", "description": "建立專案。傳 name；可選 start_date、end_date（YYYY-MM-DD）與 note。", "inputSchema": req("name")},
 		{"name": "update_project", "description": "更新既有專案。傳 project_id；可更新 name、start_date、end_date、note，至少提供一個要更新的欄位。", "inputSchema": req("project_id")},
