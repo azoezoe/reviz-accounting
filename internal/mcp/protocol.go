@@ -263,6 +263,43 @@ func (s *Server) tool(u *auth.User, name string, a map[string]any) (any, error) 
 func tools() []map[string]any {
 	obj := map[string]any{"type": "object"}
 	req := func(keys ...string) map[string]any { return map[string]any{"type": "object", "required": keys} }
+	field := func(kind, description string) map[string]any {
+		return map[string]any{"type": kind, "description": description}
+	}
+	transactionSchema := func(required ...string) map[string]any {
+		return map[string]any{
+			"type":     "object",
+			"required": required,
+			"properties": map[string]any{
+				"date":            field("string", "交易日期，格式 YYYY-MM-DD。"),
+				"description":     field("string", "交易敘述。"),
+				"amount":          field("number", "交易金額，單位為分（例如 NT$3,675 傳 367500）。必須大於 0。"),
+				"from_account_id": field("integer", "支出或轉帳的轉出帳戶 ID。收入交易可省略。"),
+				"to_account_id":   field("integer", "收入或轉帳的轉入帳戶 ID。支出交易可省略。"),
+				"category_id":     field("integer", "分類 ID，可由 list_categories 取得。"),
+				"counterparty":    field("string", "交易對象名稱；不存在時會自動建立。"),
+				"project_id":      field("integer", "專案 ID。accountant 必填，且必須對該專案有 write 權限。"),
+				"note":            field("string", "選填備註。"),
+			},
+			"anyOf": []map[string]any{
+				{"required": []string{"from_account_id"}},
+				{"required": []string{"to_account_id"}},
+			},
+		}
+	}
+	projectCostSchema := map[string]any{
+		"type":     "object",
+		"required": []string{"project_id", "name", "amount_cents"},
+		"properties": map[string]any{
+			"project_id":    field("integer", "具有 write 權限的專案 ID。"),
+			"name":          field("string", "成本項目名稱。"),
+			"amount_cents":  field("integer", "成本金額，單位為分。"),
+			"currency":      field("string", "選填幣別，預設 TWD。"),
+			"exchange_rate": field("number", "選填匯率，預設 1。"),
+			"is_labor":      field("boolean", "選填；是否為人力成本。"),
+			"note":          field("string", "選填備註。"),
+		},
+	}
 	return []map[string]any{
 		{"name": "list_accounts", "description": "列出可用帳戶與 ID；建立交易時需要 from_account_id 或 to_account_id。accountant 以上。", "inputSchema": obj},
 		{"name": "list_categories", "description": "列出收入、成本與費用分類及 ID；建立交易時可帶 category_id。accountant 以上。", "inputSchema": obj},
@@ -290,11 +327,15 @@ func tools() []map[string]any {
 		{"name": "create_time_entry", "description": "新增角色工時。傳 project_id、role_id、work_date、estimated_minutes、actual_minutes，可選 description。accountant 以上。", "inputSchema": req("project_id", "role_id", "work_date")},
 		{"name": "create_project_receivable", "description": "新增專案應收款。金額為分；傳 project_id、name、amount_cents，可選 expected_date、note。accountant 以上。", "inputSchema": req("project_id", "name", "amount_cents")},
 		{"name": "toggle_project_receivable", "description": "切換應收款是否已入帳。傳 project_id、receivable_id。accountant 以上。", "inputSchema": req("project_id", "receivable_id")},
-		{"name": "create_project_cost", "description": "新增多幣別專案成本。金額為分；傳 project_id、name、amount_cents，可選 currency、exchange_rate、is_labor、note。accountant 以上。", "inputSchema": req("project_id", "name", "amount_cents")},
+		{"name": "create_project_cost", "description": "新增多幣別專案成本。accountant 必須對 project_id 有 write 權限。", "inputSchema": projectCostSchema},
 		{"name": "toggle_project_cost", "description": "切換專案成本是否已付款。傳 project_id、cost_id。accountant 以上。", "inputSchema": req("project_id", "cost_id")},
 		{"name": "list_transactions", "description": "查詢交易，可帶 year_month、search、limit", "inputSchema": obj},
-		{"name": "create_transaction", "description": "新增交易；amount 是分，傳 date、description、amount、from_account_id/to_account_id、category_id、counterparty、note。", "inputSchema": req("date", "description", "amount")},
-		{"name": "update_transaction", "description": "更新既有交易；傳 id 及 create_transaction 欄位。", "inputSchema": req("id", "date", "description", "amount")},
+		{"name": "create_transaction", "description": "新增交易。至少提供 from_account_id 或 to_account_id；accountant 必須提供有 write 權限的 project_id。帳戶與分類 ID 分別由 list_accounts、list_categories 取得。", "inputSchema": transactionSchema("date", "description", "amount")},
+		{"name": "update_transaction", "description": "更新既有交易；需要傳 id 與完整交易欄位。至少提供 from_account_id 或 to_account_id；accountant 的 project_id 必須有 write 權限。", "inputSchema": func() map[string]any {
+			s := transactionSchema("id", "date", "description", "amount")
+			s["properties"].(map[string]any)["id"] = field("integer", "要更新的交易 ID。")
+			return s
+		}()},
 		{"name": "upload_receipt", "description": "上傳並附加單據到既有交易。傳 transaction_id、filename、mime_type 與 content_base64；只接受 PDF、JPG、PNG、WebP，最大 20 MB。", "inputSchema": req("transaction_id", "filename", "mime_type", "content_base64")},
 		{"name": "save_project_budget", "description": "新增或更新專案總預算；amount 為分。傳 project_id、total_amount，可選 note。", "inputSchema": req("project_id", "total_amount")},
 		{"name": "create_budget_allocation", "description": "建立專案預定分配；金額為分。傳 project_id、recipient_kind(labor_compensation|company_reserve|cost_expense)、recipient_name、planned_amount。", "inputSchema": req("project_id", "recipient_kind", "recipient_name", "planned_amount")},

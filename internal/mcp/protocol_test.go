@@ -91,6 +91,32 @@ func TestViewerCannotUseTransactionLookupTools(t *testing.T) {
 	}
 }
 
+func TestTransactionWriteToolsDeclareTheirFields(t *testing.T) {
+	want := map[string][]string{
+		"create_transaction":  {"date", "description", "amount", "from_account_id", "to_account_id", "project_id"},
+		"update_transaction":  {"id", "date", "description", "amount", "project_id"},
+		"create_project_cost": {"project_id", "name", "amount_cents"},
+	}
+	for _, tool := range tools() {
+		name := tool["name"].(string)
+		fields, ok := want[name]
+		if !ok {
+			continue
+		}
+		schema := tool["inputSchema"].(map[string]any)
+		properties, ok := schema["properties"].(map[string]any)
+		if !ok {
+			t.Errorf("%s has no properties", name)
+			continue
+		}
+		for _, field := range fields {
+			if _, ok := properties[field]; !ok {
+				t.Errorf("%s schema missing %s", name, field)
+			}
+		}
+	}
+}
+
 func TestAuditUsesActualMCPToolName(t *testing.T) {
 	raw := []byte(`{"name":"accept_project_quote","arguments":{"project_id":1,"quote_id":2}}`)
 	if got := auditToolName("tools/call", raw); got != "accept_project_quote" {
