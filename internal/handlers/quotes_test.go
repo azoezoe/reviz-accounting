@@ -192,6 +192,112 @@ func TestQuoteAttachmentUploadAcceptsMultiplePDFs(t *testing.T) {
 	}
 }
 
+func TestQuoteUpdateSaveAsNewVersionCopiesAttachments(t *testing.T) {
+	d, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	d.SetMaxOpenConns(1)
+	_, err = d.Exec(`
+		CREATE TABLE quotes (
+			id INTEGER PRIMARY KEY, quote_no TEXT NOT NULL, title TEXT NOT NULL,
+			client_name TEXT NOT NULL, issuer_name TEXT NOT NULL, currency TEXT NOT NULL,
+			discount_type TEXT NOT NULL, discount_value REAL NOT NULL, tax_rate REAL NOT NULL,
+			note TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', version_no INTEGER NOT NULL,
+			parent_quote_id INTEGER, project_id INTEGER, quote_date TEXT NOT NULL,
+			valid_until TEXT, issuer_contact TEXT NOT NULL, issuer_email TEXT NOT NULL,
+			issuer_tax_id TEXT NOT NULL, project_content TEXT NOT NULL, terms TEXT NOT NULL,
+			signature_label TEXT NOT NULL, quote_language TEXT NOT NULL, quote_type TEXT NOT NULL,
+			show_unit_price INTEGER NOT NULL, personal_name TEXT NOT NULL,
+			personal_contact TEXT NOT NULL, accepted_choice_label TEXT,
+			contact_user_id INTEGER, created_by_id INTEGER, updated_at TEXT
+		);
+		CREATE TABLE quote_items (
+			id INTEGER PRIMARY KEY, quote_id INTEGER NOT NULL, description TEXT NOT NULL,
+			detail TEXT NOT NULL, quantity REAL NOT NULL, unit TEXT NOT NULL,
+			unit_price_cents INTEGER NOT NULL, is_choice INTEGER NOT NULL DEFAULT 0,
+			sort_order INTEGER NOT NULL
+		);
+		CREATE TABLE quote_specifications (
+			id INTEGER PRIMARY KEY, quote_id INTEGER NOT NULL, feature TEXT NOT NULL,
+			use_case TEXT NOT NULL, capability TEXT NOT NULL,
+			implementation_steps TEXT NOT NULL, sort_order INTEGER NOT NULL
+		);
+		CREATE TABLE quote_attachments (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, quote_id INTEGER NOT NULL,
+			storage_key TEXT NOT NULL UNIQUE, original_filename TEXT NOT NULL,
+			content_type TEXT NOT NULL, size_bytes INTEGER NOT NULL,
+			uploaded_by_id INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO quotes VALUES
+			(6,'Q-2026-001-R1','第一版','客戶','ReViz','TWD','percent',0,5,'','sent',1,NULL,NULL,'2026-08-01',NULL,'','','','','','簽核','zh-TW','personal',0,'承辦人','聯絡方式',NULL,NULL,1,NULL),
+			(7,'Q-2026-001-R2','第二版','客戶','ReViz','TWD','percent',0,5,'','draft',2,6,NULL,'2026-08-10',NULL,'','','','','','簽核','zh-TW','personal',0,'承辦人','聯絡方式',NULL,NULL,1,NULL);
+		INSERT INTO quote_items VALUES (1,7,'顧問服務','服務內容',1,'式',10000,0,0);
+		INSERT INTO quote_specifications VALUES (1,7,'附件需求','','','',0);
+		INSERT INTO quote_attachments(quote_id,storage_key,original_filename,content_type,size_bytes)
+		VALUES(7,'quote-attachments/7/source.pdf','需求附件.pdf','application/pdf',15);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	attachmentData := []byte("%PDF-1.7 copied")
+	store := &testAttachmentStore{objects: map[string][]byte{
+		"quote-attachments/7/source.pdf": attachmentData,
+	}}
+	form := url.Values{
+		"title":               {"第三版"},
+		"client_name":         {"客戶"},
+		"quote_type":          {"personal"},
+		"currency":            {"TWD"},
+		"discount_type":       {"percent"},
+		"discount_value":      {"0"},
+		"tax_rate":            {"5"},
+		"quote_date":          {"2026-08-25"},
+		"quote_language":      {"zh-TW"},
+		"personal_name":       {"承辦人"},
+		"personal_contact":    {"聯絡方式"},
+		"save_as_new_version": {"1"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/quotes/7", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("id", "7")
+	rec := httptest.NewRecorder()
+	(&Server{DB: d, Attachments: store}).quoteUpdate(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("quoteUpdate status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Location"); got != "/quotes/8?saved=1" {
+		t.Fatalf("redirect = %q; want new quote", got)
+	}
+	var oldStatus, newNo, newTitle string
+	var version, parentID int64
+	if err := d.QueryRow(`SELECT status FROM quotes WHERE id=7`).Scan(&oldStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.QueryRow(`SELECT quote_no,title,version_no,parent_quote_id FROM quotes WHERE id=8`).Scan(&newNo, &newTitle, &version, &parentID); err != nil {
+		t.Fatal(err)
+	}
+	if oldStatus != "sent" || newNo != "Q-2026-001-R3" || newTitle != "第三版" || version != 3 || parentID != 7 {
+		t.Fatalf("version result = old status %q, no %q, title %q, version %d, parent %d", oldStatus, newNo, newTitle, version, parentID)
+	}
+	var newKey, filename string
+	if err := d.QueryRow(`SELECT storage_key,original_filename FROM quote_attachments WHERE quote_id=8`).Scan(&newKey, &filename); err != nil {
+		t.Fatal(err)
+	}
+	if newKey == "quote-attachments/7/source.pdf" || filename != "需求附件.pdf" {
+		t.Fatalf("copied attachment = key %q, filename %q", newKey, filename)
+	}
+	if !bytes.Equal(store.objects[newKey], attachmentData) {
+		t.Fatalf("new attachment data = %q; want %q", store.objects[newKey], attachmentData)
+	}
+	if !bytes.Equal(store.objects["quote-attachments/7/source.pdf"], attachmentData) {
+		t.Fatal("copying the attachment changed the previous version's file")
+	}
+}
+
 func TestQuoteItemNumbersRestartForEveryQuote(t *testing.T) {
 	d, err := sql.Open("sqlite", ":memory:")
 	if err != nil {

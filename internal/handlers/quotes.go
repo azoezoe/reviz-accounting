@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -380,7 +382,8 @@ func (s *Server) quoteUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer tx.Rollback()
-		targetID, err = cloneQuoteVersion(tx, q)
+		var copiedAttachmentKeys []string
+		targetID, copiedAttachmentKeys, err = s.cloneQuoteVersion(r.Context(), tx, q)
 		if err == nil {
 			args = append(args, targetID)
 			result, err = tx.Exec(`UPDATE quotes SET title=$1,client_name=$2,issuer_name=$3,currency=$4,discount_type=$5,discount_value=$6,tax_rate=$7,note=$8,quote_date=$9,valid_until=NULLIF($10,''),issuer_contact=$11,issuer_email=$12,issuer_tax_id=$13,project_content=$14,terms=$15,signature_label=$16,quote_language=$17,quote_type=$18,show_unit_price=$19,personal_name=$20,personal_contact=$21,contact_user_id=NULLIF($22,0),updated_at=CAST(CURRENT_TIMESTAMP AS TEXT) WHERE id=$23 AND status='draft'`, args...)
@@ -389,6 +392,7 @@ func (s *Server) quoteUpdate(w http.ResponseWriter, r *http.Request) {
 			err = tx.Commit()
 		}
 		if err != nil {
+			s.cleanupQuoteAttachmentCopies(r.Context(), copiedAttachmentKeys)
 			s.error500(w, err)
 			return
 		}
@@ -439,42 +443,109 @@ func (s *Server) quoteRevise(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	newID, err := cloneQuoteVersion(tx, q)
+	newID, copiedAttachmentKeys, err := s.cloneQuoteVersion(r.Context(), tx, q)
 	if err != nil {
 		s.error500(w, err)
 		return
 	}
 	if err := tx.Commit(); err != nil {
+		s.cleanupQuoteAttachmentCopies(r.Context(), copiedAttachmentKeys)
 		s.error500(w, err)
 		return
 	}
 	http.Redirect(w, r, "/quotes/"+strconv.FormatInt(newID, 10), 303)
 }
 
-func cloneQuoteVersion(tx *sql.Tx, q quoteView) (int64, error) {
+func (s *Server) cloneQuoteVersion(ctx context.Context, tx *sql.Tx, q quoteView) (newID int64, copiedAttachmentKeys []string, err error) {
+	defer func() {
+		if err != nil {
+			s.cleanupQuoteAttachmentCopies(ctx, copiedAttachmentKeys)
+			copiedAttachmentKeys = nil
+		}
+	}()
 	if q.Status != "draft" {
-		return 0, fmt.Errorf("只有草稿報價單可以建立新版")
+		err = fmt.Errorf("只有草稿報價單可以建立新版")
+		return
 	}
-	var newID int64
 	quoteNo := fmt.Sprintf("%s-R%d", strings.Split(q.QuoteNo, "-R")[0], q.VersionNo+1)
-	err := tx.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id) SELECT $1,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,$2,id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id FROM quotes WHERE id=$3 RETURNING id`, quoteNo, q.VersionNo+1, q.ID).Scan(&newID)
+	err = tx.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id) SELECT $1,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,$2,id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id FROM quotes WHERE id=$3 RETURNING id`, quoteNo, q.VersionNo+1, q.ID).Scan(&newID)
 	if err != nil {
-		return 0, err
+		return
 	}
 	if _, err = tx.Exec(`INSERT INTO quote_items(quote_id,description,detail,quantity,unit,unit_price_cents,is_choice,sort_order) SELECT $1,description,detail,quantity,unit,unit_price_cents,is_choice,sort_order FROM quote_items WHERE quote_id=$2`, newID, q.ID); err != nil {
-		return 0, err
+		return
 	}
 	if _, err = tx.Exec(`INSERT INTO quote_specifications(quote_id,feature,use_case,capability,implementation_steps,sort_order) SELECT $1,feature,use_case,capability,implementation_steps,sort_order FROM quote_specifications WHERE quote_id=$2`, newID, q.ID); err != nil {
-		return 0, err
+		return
+	}
+
+	rows, queryErr := tx.Query(`SELECT original_filename,content_type,size_bytes,uploaded_by_id,storage_key FROM quote_attachments WHERE quote_id=$1 ORDER BY id`, q.ID)
+	if queryErr != nil {
+		err = queryErr
+		return
+	}
+	var attachments []models.QuoteAttachment
+	for rows.Next() {
+		var attachment models.QuoteAttachment
+		if scanErr := rows.Scan(&attachment.OriginalFilename, &attachment.ContentType, &attachment.SizeBytes, &attachment.UploadedByID, &attachment.StorageKey); scanErr != nil {
+			_ = rows.Close()
+			err = scanErr
+			return
+		}
+		attachments = append(attachments, attachment)
+	}
+	err = rows.Err()
+	_ = rows.Close()
+	if err != nil {
+		return
+	}
+	if len(attachments) > 0 && s.Attachments == nil {
+		err = fmt.Errorf("附件儲存空間尚未設定")
+		return
+	}
+	for _, attachment := range attachments {
+		var source io.ReadCloser
+		source, err = s.Attachments.Open(ctx, attachment.StorageKey)
+		if err != nil {
+			err = fmt.Errorf("讀取舊版報價附件 %s: %w", attachment.OriginalFilename, err)
+			return
+		}
+		newKey, keyErr := quoteAttachmentKey(newID, attachment.OriginalFilename)
+		if keyErr != nil {
+			_ = source.Close()
+			err = keyErr
+			return
+		}
+		contentType := defaultString(attachment.ContentType, "application/pdf")
+		if putErr := s.Attachments.Put(ctx, newKey, contentType, source); putErr != nil {
+			_ = source.Close()
+			err = fmt.Errorf("複製報價附件 %s: %w", attachment.OriginalFilename, putErr)
+			return
+		}
+		_ = source.Close()
+		copiedAttachmentKeys = append(copiedAttachmentKeys, newKey)
+		_, err = tx.Exec(`INSERT INTO quote_attachments(quote_id,storage_key,original_filename,content_type,size_bytes,uploaded_by_id) VALUES($1,$2,$3,$4,$5,$6)`, newID, newKey, attachment.OriginalFilename, contentType, attachment.SizeBytes, attachment.UploadedByID)
+		if err != nil {
+			return
+		}
 	}
 	result, err := tx.Exec(`UPDATE quotes SET status='sent' WHERE id=$1 AND status='draft'`, q.ID)
 	if err != nil {
-		return 0, err
+		return 0, copiedAttachmentKeys, err
 	}
 	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
-		return 0, fmt.Errorf("報價單已不是可建立新版的草稿")
+		return 0, copiedAttachmentKeys, fmt.Errorf("報價單已不是可建立新版的草稿")
 	}
-	return newID, nil
+	return newID, copiedAttachmentKeys, nil
+}
+
+func (s *Server) cleanupQuoteAttachmentCopies(ctx context.Context, keys []string) {
+	if s.Attachments == nil {
+		return
+	}
+	for _, key := range keys {
+		_ = s.Attachments.Delete(ctx, key)
+	}
 }
 
 func (s *Server) quoteDelete(w http.ResponseWriter, r *http.Request) {
