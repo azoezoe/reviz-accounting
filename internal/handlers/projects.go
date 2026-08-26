@@ -151,20 +151,27 @@ func (s *Server) projectBudgetPage(w http.ResponseWriter, r *http.Request) {
 		Accrued    int64
 	}
 	views := make([]allocationView, 0, len(allocations))
-	var plannedTotal, plannedCompany int64
+	var plannedTotal, plannedCompany, accruedTotal, actualPaidTotal int64
 	for _, a := range allocations {
 		accrued := int64(0)
 		if b.TotalAmountCents > 0 {
 			accrued = a.PlannedAmountCents * report.IncomeCents / b.TotalAmountCents
 		}
 		plannedTotal += a.PlannedAmountCents
+		accruedTotal += accrued
+		actualPaidTotal += report.PaidByAllocation[a.ID]
 		if a.RecipientKind == "company_reserve" {
 			plannedCompany += a.PlannedAmountCents
 		}
 		views = append(views, allocationView{BudgetAllocation: a, ActualPaid: report.PaidByAllocation[a.ID], Accrued: accrued})
 	}
+	unallocatedTotal := b.TotalAmountCents - plannedTotal
+	overallocatedTotal := int64(0)
+	if unallocatedTotal < 0 {
+		overallocatedTotal = -unallocatedTotal
+	}
 	cps, _ := models.ListCounterparties(s.DB, "")
-	s.render(w, r, "project_budget.html", map[string]any{"Title": "專案預算", "Crumbs": []string{"專案", p.Name, "預算"}, "Project": p, "Budget": b, "Allocations": views, "ProjectTransactions": txViews, "JournalAllocationFilter": filterID, "Counterparties": cps, "ActualIncome": report.IncomeCents, "PlannedTotal": plannedTotal, "PlannedCompany": plannedCompany, "CanWrite": canWrite, "Active": "projects"})
+	s.render(w, r, "project_budget.html", map[string]any{"Title": "專案預算", "Crumbs": []string{"專案", p.Name, "預算"}, "Project": p, "Budget": b, "Allocations": views, "ProjectTransactions": txViews, "JournalAllocationFilter": filterID, "Counterparties": cps, "ActualIncome": report.IncomeCents, "PlannedTotal": plannedTotal, "PlannedCompany": plannedCompany, "AccruedTotal": accruedTotal, "ActualPaidTotal": actualPaidTotal, "UnallocatedTotal": unallocatedTotal, "OverallocatedTotal": overallocatedTotal, "CanWrite": canWrite, "Active": "projects"})
 }
 
 func (s *Server) projectBudgetSave(w http.ResponseWriter, r *http.Request) {

@@ -57,6 +57,26 @@
     <button class="lg-btn-primary">新增報價版本</button>
   </form>
 
+  {{range .ProposalQuotes}}
+  {{$proposal := .}}
+  <details class="mgmt-record" open>
+    <summary><strong>{{.QuoteNo}}</strong> · V{{.VersionNo}} · {{if .Title}}{{.Title}}{{else}}未命名報價{{end}} <span>{{money .TotalCents}} {{.Currency}}</span></summary>
+    <div class="mgmt-record__body">
+      <div class="mgmt-print-head"><h2>{{if .Title}}{{.Title}}{{else}}報價單{{end}}</h2><p>{{.QuoteNo}} · {{.ClientName}} · {{.IssuerName}}</p></div>
+      <p class="mgmt-note">成立此專案的原始報價提案</p>
+      <div class="lg-table-scroll"><table class="lg-table"><thead><tr><th>項目</th><th>數量</th><th>單位</th>{{if .ShowUnitPrice}}<th class="right">單價</th>{{end}}<th class="right">小計</th></tr></thead>
+        <tbody>{{range .Items}}<tr><td>{{.Description}}{{if .Detail}}<br><small>{{.Detail}}</small>{{end}}</td><td>{{printf "%.2f" .Quantity}}</td><td>{{.Unit}}</td>{{if $proposal.ShowUnitPrice}}<td class="right">{{money .UnitPriceCents}}</td>{{end}}<td class="right">{{money .LineTotalCents}}</td></tr>{{else}}<tr><td colspan="5">尚無項目</td></tr>{{end}}</tbody>
+      </table></div>
+      {{if .HasChoices}}
+      <div class="mgmt-quote-total">{{range .TotalOptions}}<strong>方案 {{.Label}}{{if eq .Label $proposal.AcceptedChoiceLabel}}（已採用）{{end}}：{{money .TotalCents}} {{$proposal.Currency}}</strong>{{end}}</div>
+      {{else}}
+      <div class="mgmt-quote-total"><span>未稅 {{money .SubtotalCents}}</span><span>折扣 −{{money .DiscountCents}}</span><span>稅額 {{money .TaxCents}}</span><strong>總計 {{money .TotalCents}} {{.Currency}}</strong></div>
+      {{end}}
+      <div class="mgmt-actions"><a class="lg-btn-link" href="/quotes/{{.ID}}">開啟原始報價 →</a><a class="lg-btn-link" href="/quotes/{{.ID}}/print" target="_blank" rel="noopener">列印 / PDF</a><span class="mgmt-accepted">✓ 已接受並連結專案</span></div>
+    </div>
+  </details>
+  {{end}}
+
   {{range .Quotes}}
   <details class="mgmt-record" {{if eq .ID (index $.Quotes 0).ID}}open{{end}}>
     <summary><strong>{{.QuoteNo}}</strong> · V{{.VersionNo}} · {{if .Title}}{{.Title}}{{else}}未命名報價{{end}} <span>{{money .TotalCents}} {{.Currency}}</span></summary>
@@ -84,7 +104,8 @@
       </div>
     </div>
   </details>
-  {{else}}<div class="lg-empty">尚無報價單</div>{{end}}
+  {{end}}
+  {{if not (or .ProposalQuotes .Quotes)}}<div class="lg-empty">尚無報價單</div>{{end}}
 </section>
 
 <div class="lg-2col-eq" style="margin-top:18px;">

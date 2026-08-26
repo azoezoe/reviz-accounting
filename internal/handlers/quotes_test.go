@@ -440,6 +440,17 @@ func TestQuoteChoiceItemsProduceAlternativeTotals(t *testing.T) {
 	if budget != 37800 || acceptedChoice != "B" || !strings.Contains(budgetNote, "方案 B") {
 		t.Fatalf("accepted budget = %d, choice = %q, note = %q", budget, acceptedChoice, budgetNote)
 	}
+	var projectID int64
+	if err := d.QueryRow(`SELECT project_id FROM quotes WHERE id=1`).Scan(&projectID); err != nil {
+		t.Fatal(err)
+	}
+	linkedQuotes, err := (&Server{DB: d}).loadProjectProposalQuotes(projectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(linkedQuotes) != 1 || linkedQuotes[0].ID != 1 || linkedQuotes[0].QuoteNo != "Q-CHOICE" {
+		t.Fatalf("linked project proposals = %+v; want accepted Q-CHOICE", linkedQuotes)
+	}
 }
 
 func TestQuotePrintRendersChoiceBreakdownsAndPaginationGuards(t *testing.T) {

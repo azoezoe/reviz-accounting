@@ -23,6 +23,11 @@ func (s *Server) projectManagementPage(w http.ResponseWriter, r *http.Request) {
 		s.error500(w, err)
 		return
 	}
+	proposalQuotes, err := s.loadProjectProposalQuotes(id)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
 	roles, err := models.ListProjectRoles(s.DB, id)
 	if err != nil {
 		s.error500(w, err)
@@ -54,7 +59,9 @@ func (s *Server) projectManagementPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var summary models.ProjectManagementSummary
-	if len(quotes) > 0 {
+	if len(proposalQuotes) > 0 {
+		summary.QuoteTotalCents = proposalQuotes[0].TotalCents
+	} else if len(quotes) > 0 {
 		summary.QuoteTotalCents = quotes[0].TotalCents
 	}
 	for _, x := range entries {
@@ -74,11 +81,43 @@ func (s *Server) projectManagementPage(w http.ResponseWriter, r *http.Request) {
 	}
 	s.render(w, r, "project_management.html", map[string]any{
 		"Title": "專案營運", "Crumbs": []string{"專案", project.Name, "營運"},
-		"Active": "projects", "Project": project, "Quotes": quotes, "Roles": roles,
+		"Active": "projects", "Project": project, "Quotes": quotes, "ProposalQuotes": proposalQuotes, "Roles": roles,
 		"Entries": entries, "Receivables": receivables, "Costs": costs, "Summary": summary,
 		"Permissions": permissions, "Users": users,
 		"NextQuoteNo": models.NextQuoteNo(s.DB), "Today": time.Now().Format("2006-01-02"),
 	})
+}
+
+func (s *Server) loadProjectProposalQuotes(projectID int64) ([]quoteView, error) {
+	rows, err := s.DB.Query(`SELECT id FROM quotes WHERE project_id=$1 ORDER BY id DESC`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	quotes := make([]quoteView, 0, len(ids))
+	for _, id := range ids {
+		quote, err := s.loadQuote(id)
+		if err != nil {
+			return nil, err
+		}
+		quotes = append(quotes, quote)
+	}
+	return quotes, nil
 }
 
 func (s *Server) projectPermissionSave(w http.ResponseWriter, r *http.Request) {

@@ -38,7 +38,7 @@ func (s *Server) projectWrite(next http.HandlerFunc) http.Handler {
 	return s.requireProjectAccess(true, next)
 }
 
-func (s *Server) requireQuoteAccess(next http.HandlerFunc) http.Handler {
+func (s *Server) requireQuoteAccess(write bool, next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u := auth.FromContext(r.Context())
 		if u == nil {
@@ -50,7 +50,15 @@ func (s *Server) requireQuoteAccess(next http.HandlerFunc) http.Handler {
 			return
 		}
 		var ok bool
-		err := s.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM quotes WHERE id=$1 AND created_by_id=$2)`, parseInt64(r.PathValue("id")), u.ID).Scan(&ok)
+		accessLevel := ""
+		if write {
+			accessLevel = ` AND pp.access_level='write'`
+		}
+		err := s.DB.QueryRow(`SELECT EXISTS(
+			SELECT 1 FROM quotes q
+			LEFT JOIN project_permissions pp ON pp.project_id=q.project_id AND pp.user_id=$2
+			WHERE q.id=$1 AND (q.created_by_id=$2 OR (pp.user_id IS NOT NULL`+accessLevel+`))
+		)`, parseInt64(r.PathValue("id")), u.ID).Scan(&ok)
 		if err != nil {
 			s.error500(w, err)
 			return
