@@ -203,7 +203,7 @@ func (s *Server) journalEdit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	s.renderJournalEdit(w, r, t, &budgetPostingForm{Kind: "partner_payout"})
+	s.renderJournalEdit(w, r, t, &budgetPostingForm{Kind: "project_expense"})
 }
 
 func (s *Server) accessibleProjects(r *http.Request, all []models.Project) []models.Project {
@@ -282,15 +282,19 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 		s.journalBudgetPostingError(w, r, t, form, "amount", "請輸入大於 0 的有效分攤金額")
 		return
 	}
-	kind := r.FormValue("allocation_kind")
-	if kind != "income" && kind != "partner_payout" && kind != "cost_expense" && kind != "company_reserve" && kind != "company_shared_cost" {
+	requestedKind := r.FormValue("allocation_kind")
+	if requestedKind != "project_expense" && requestedKind != "partner_payout" && requestedKind != "cost_expense" && requestedKind != "company_shared_cost" {
 		s.journalBudgetPostingError(w, r, t, form, "kind", "請選擇有效的分攤類型")
 		return
 	}
-	p := &models.BudgetPosting{TransactionID: txID, Kind: kind, AmountCents: amt, Note: r.FormValue("note")}
+	p := &models.BudgetPosting{TransactionID: txID, Kind: requestedKind, AmountCents: amt, Note: r.FormValue("note")}
 	if aid := parseInt64(r.FormValue("budget_allocation_id")); aid > 0 {
 		p.AllocationID = aid
 		p.AllocationValid = true
+	}
+	if requestedKind == "company_shared_cost" && p.AllocationValid {
+		s.journalBudgetPostingError(w, r, t, form, "allocation", "公司共用池支出不需選擇專案預算項目")
+		return
 	}
 	if p.AllocationValid {
 		projectID := parseInt64(r.FormValue("project_id"))
@@ -308,8 +312,8 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 			return
 		}
 	}
-	if (kind == "partner_payout" || kind == "cost_expense") && !p.AllocationValid {
-		s.journalBudgetPostingError(w, r, t, form, "allocation", "勞務報酬或成本支出必須對應一個專案預算項目")
+	if requestedKind != "company_shared_cost" && !p.AllocationValid {
+		s.journalBudgetPostingError(w, r, t, form, "allocation", "專案預算支出必須對應一個專案預算項目")
 		return
 	}
 	if p.AllocationValid {
@@ -318,24 +322,22 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 			s.error500(w, e)
 			return
 		}
-		if (kind == "partner_payout" && allocationKind != "labor_compensation") || (kind == "cost_expense" && allocationKind != "cost_expense") || (kind == "company_reserve" && allocationKind != "company_reserve") {
-			s.journalBudgetPostingError(w, r, t, form, "allocation", "分攤類型必須對應相同用途類別的專案預算項目")
+		postingKind, ok := budgetPostingKindForAllocation(allocationKind)
+		if !ok {
+			s.journalBudgetPostingError(w, r, t, form, "allocation", "公司保留預算項目不能用於費用分攤")
 			return
 		}
+		p.Kind = postingKind
+		form.Kind = "project_expense"
 	}
-	// A company reserve is a reporting attribution of income, not a second
-	// cash movement. All other types share the same payment amount, including
-	// rows attributed to different projects.
-	if kind != "company_reserve" {
-		used, err := models.SumCashBudgetPostings(s.DB, txID)
-		if err != nil {
-			s.error500(w, err)
-			return
-		}
-		if used+amt > t.AmountCents {
-			s.journalBudgetPostingError(w, r, t, form, "amount", "此類型的分攤總額不能超過交易金額")
-			return
-		}
+	used, err := models.SumCashBudgetPostings(s.DB, txID)
+	if err != nil {
+		s.error500(w, err)
+		return
+	}
+	if used+amt > t.AmountCents {
+		s.journalBudgetPostingError(w, r, t, form, "amount", "所有費用分攤合計不能超過交易金額")
+		return
 	}
 	if _, err = models.CreateBudgetPosting(s.DB, p); err != nil {
 		s.error500(w, err)
@@ -343,6 +345,18 @@ func (s *Server) journalBudgetPostingCreate(w http.ResponseWriter, r *http.Reque
 	}
 	http.Redirect(w, r, "/journal/"+r.PathValue("id")+"/edit", 303)
 }
+
+func budgetPostingKindForAllocation(allocationKind string) (string, bool) {
+	switch allocationKind {
+	case "labor_compensation":
+		return "partner_payout", true
+	case "cost_expense":
+		return "cost_expense", true
+	default:
+		return "", false
+	}
+}
+
 func (s *Server) journalBudgetPostingDelete(w http.ResponseWriter, r *http.Request) {
 	_ = models.DeleteBudgetPosting(s.DB, parseInt64(r.PathValue("postingID")))
 	http.Redirect(w, r, "/journal/"+r.PathValue("id")+"/edit", 303)

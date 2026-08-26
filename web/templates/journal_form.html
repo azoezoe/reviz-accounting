@@ -118,12 +118,12 @@
 
     {{if eq $mode "edit"}}
     <section class="lg-panel" style="padding:18px 20px;">
-      <div class="lg-panel__head"><div><h3 class="lg-panel__title" style="font-size:14px;">預算分攤</h3><p class="lg-panel__sub">可新增多列並分攤到不同專案；所有付款分攤合計不得超過交易金額。</p></div></div>
+      <div class="lg-panel__head"><div><h3 class="lg-panel__title" style="font-size:14px;">費用分攤</h3><p class="lg-panel__sub">選擇專案預算項目後，系統會自動判斷勞務報酬或成本支出；會計分類不影響專案歸屬。</p></div></div>
       {{range .BudgetPostings}}<div style="display:flex;gap:6px;align-items:center;padding:7px 0;border-top:1px solid var(--border-subtle);font-size:12px;"><span style="flex:1">{{if .ProjectName}}{{.ProjectName}} · {{.AllocationName}} · {{end}}{{.Kind}} · {{money .AmountCents}}</span><form method="post" action="/journal/{{$tx.ID}}/budget-postings/{{.ID}}/delete"><button class="lg-btn-link" style="color:var(--danger-700)">×</button></form></div>{{end}}
       <form method="post" action="/journal/{{$tx.ID}}/budget-postings" style="display:grid;gap:8px;margin-top:10px;">
-        <select class="lg-select {{if eq .BudgetPostingForm.ErrorField "kind"}}lg-input--error{{end}}" name="allocation_kind"><option value="partner_payout" {{if eq .BudgetPostingForm.Kind "partner_payout"}}selected{{end}}>勞務報酬付款</option><option value="cost_expense" {{if eq .BudgetPostingForm.Kind "cost_expense"}}selected{{end}}>成本支出</option><option value="company_shared_cost" {{if eq .BudgetPostingForm.Kind "company_shared_cost"}}selected{{end}}>公司共用池支出</option></select>{{if eq .BudgetPostingForm.ErrorField "kind"}}<p class="lg-field-error">{{.BudgetPostingForm.Error}}</p>{{end}}
-        <select id="budget-posting-project" class="lg-select {{if eq .BudgetPostingForm.ErrorField "project"}}lg-input--error{{end}}" name="project_id"><option value="">— 此筆分攤所屬專案 —</option>{{range .Projects}}<option value="{{.ID}}" {{if eq (printf "%d" .ID) $.BudgetPostingForm.ProjectID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{if eq .BudgetPostingForm.ErrorField "project"}}<p class="lg-field-error">{{.BudgetPostingForm.Error}}</p>{{end}}
-        <select id="budget-posting-allocation" class="lg-select {{if eq .BudgetPostingForm.ErrorField "allocation"}}lg-input--error{{end}}" name="budget_allocation_id"><option value="">— 對應專案預算項目（選填）—</option>{{range .BudgetAllocations}}<option value="{{.ID}}" data-project-id="{{.ProjectID}}" {{if eq (printf "%d" .ID) $.BudgetPostingForm.AllocationID}}selected{{end}}>{{.ProjectName}} · {{.RecipientName}} · {{money .PlannedAmountCents}}</option>{{end}}</select>{{if eq .BudgetPostingForm.ErrorField "allocation"}}<p class="lg-field-error">{{.BudgetPostingForm.Error}}</p>{{end}}
+        <select id="budget-posting-kind" class="lg-select {{if eq .BudgetPostingForm.ErrorField "kind"}}lg-input--error{{end}}" name="allocation_kind"><option value="project_expense" {{if ne .BudgetPostingForm.Kind "company_shared_cost"}}selected{{end}}>專案預算支出</option><option value="company_shared_cost" {{if eq .BudgetPostingForm.Kind "company_shared_cost"}}selected{{end}}>公司共用池支出</option></select>{{if eq .BudgetPostingForm.ErrorField "kind"}}<p class="lg-field-error">{{.BudgetPostingForm.Error}}</p>{{end}}
+        <select id="budget-posting-project" class="lg-select {{if eq .BudgetPostingForm.ErrorField "project"}}lg-input--error{{end}}" name="project_id"><option value="">— 此筆費用所屬專案 —</option>{{range .Projects}}<option value="{{.ID}}" {{if eq (printf "%d" .ID) $.BudgetPostingForm.ProjectID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{if eq .BudgetPostingForm.ErrorField "project"}}<p class="lg-field-error">{{.BudgetPostingForm.Error}}</p>{{end}}
+        <select id="budget-posting-allocation" class="lg-select {{if eq .BudgetPostingForm.ErrorField "allocation"}}lg-input--error{{end}}" name="budget_allocation_id"><option value="">— 對應專案預算項目 —</option>{{range .BudgetAllocations}}{{if ne .RecipientKind "company_reserve"}}<option value="{{.ID}}" data-project-id="{{.ProjectID}}" {{if eq (printf "%d" .ID) $.BudgetPostingForm.AllocationID}}selected{{end}}>{{.ProjectName}} · {{if eq .RecipientKind "labor_compensation"}}勞務報酬{{else}}成本支出{{end}} · {{.RecipientName}} · {{money .PlannedAmountCents}}</option>{{end}}{{end}}</select>{{if eq .BudgetPostingForm.ErrorField "allocation"}}<p class="lg-field-error">{{.BudgetPostingForm.Error}}</p>{{end}}
         <input class="lg-input {{if eq .BudgetPostingForm.ErrorField "amount"}}lg-input--error{{end}}" name="amount" inputmode="decimal" placeholder="分攤金額" value="{{.BudgetPostingForm.Amount}}" required>{{if eq .BudgetPostingForm.ErrorField "amount"}}<p class="lg-field-error">{{.BudgetPostingForm.Error}}</p>{{end}}
         <input class="lg-input" name="note" placeholder="分攤備註（選填）" value="{{.BudgetPostingForm.Note}}">
         {{if and .BudgetPostingForm.Error (eq .BudgetPostingForm.ErrorField "form")}}<p class="lg-field-error">{{.BudgetPostingForm.Error}}</p>{{end}}
@@ -134,8 +134,17 @@
     (() => {
       const project = document.getElementById("budget-posting-project");
       const allocation = document.getElementById("budget-posting-allocation");
-      if (!project || !allocation) return;
+      const kind = document.getElementById("budget-posting-kind");
+      if (!project || !allocation || !kind) return;
       const filterAllocations = () => {
+        const isSharedCost = kind.value === "company_shared_cost";
+        project.disabled = isSharedCost;
+        allocation.disabled = isSharedCost;
+        if (isSharedCost) {
+          project.value = "";
+          allocation.value = "";
+          return;
+        }
         for (const option of allocation.options) {
           if (!option.dataset.projectId) continue;
           option.hidden = Boolean(project.value) && option.dataset.projectId !== project.value;
@@ -143,6 +152,7 @@
         if (allocation.selectedOptions[0]?.hidden) allocation.value = "";
       };
       project.addEventListener("change", filterAllocations);
+      kind.addEventListener("change", filterAllocations);
       filterAllocations();
     })();
     </script>
