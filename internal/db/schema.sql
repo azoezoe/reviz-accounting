@@ -70,7 +70,7 @@ CREATE TABLE IF NOT EXISTS quotes (
  tax_rate NUMERIC(6,3) NOT NULL DEFAULT 5 CHECK (tax_rate >= 0), note TEXT NOT NULL DEFAULT '',
  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','sent','accepted','rejected')),
  version_no INTEGER NOT NULL DEFAULT 1, parent_quote_id BIGINT REFERENCES quotes(id) ON DELETE SET NULL,
- project_id BIGINT UNIQUE REFERENCES projects(id) ON DELETE SET NULL,
+ project_id BIGINT REFERENCES projects(id) ON DELETE SET NULL,
  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP::text
 );
 CREATE TABLE IF NOT EXISTS quote_items (
@@ -98,6 +98,11 @@ ALTER TABLE quotes ADD COLUMN IF NOT EXISTS personal_contact TEXT NOT NULL DEFAU
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS accepted_choice_label TEXT NOT NULL DEFAULT '';
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS contact_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE quotes ADD COLUMN IF NOT EXISTS created_by_id BIGINT REFERENCES users(id) ON DELETE SET NULL;
+-- Multiple accepted revisions may belong to the same execution project. Older
+-- deployments made project_id unique, which prevented a customer-approved
+-- budget revision from being linked back to that project.
+ALTER TABLE quotes DROP CONSTRAINT IF EXISTS quotes_project_id_key;
+CREATE INDEX IF NOT EXISTS idx_standalone_quotes_project ON quotes(project_id);
 ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS detail TEXT NOT NULL DEFAULT '';
 ALTER TABLE quote_items ADD COLUMN IF NOT EXISTS is_choice INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_quote_specifications_quote ON quote_specifications(quote_id);

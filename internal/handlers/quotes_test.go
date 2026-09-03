@@ -453,6 +453,122 @@ func TestQuoteChoiceItemsProduceAlternativeTotals(t *testing.T) {
 	}
 }
 
+func TestAcceptedQuoteRevisionUpdatesOriginalProjectBudget(t *testing.T) {
+	d, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	d.SetMaxOpenConns(1)
+	_, err = d.Exec(`
+		CREATE TABLE quotes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, quote_no TEXT NOT NULL UNIQUE, title TEXT NOT NULL,
+			client_name TEXT NOT NULL, issuer_name TEXT NOT NULL, currency TEXT NOT NULL,
+			discount_type TEXT NOT NULL, discount_value REAL NOT NULL, tax_rate REAL NOT NULL,
+			note TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', version_no INTEGER NOT NULL,
+			parent_quote_id INTEGER, project_id INTEGER, quote_date TEXT NOT NULL,
+			valid_until TEXT, issuer_contact TEXT NOT NULL, issuer_email TEXT NOT NULL,
+			issuer_tax_id TEXT NOT NULL, project_content TEXT NOT NULL, terms TEXT NOT NULL,
+			signature_label TEXT NOT NULL, quote_language TEXT NOT NULL, quote_type TEXT NOT NULL,
+			show_unit_price INTEGER NOT NULL, personal_name TEXT NOT NULL,
+			personal_contact TEXT NOT NULL, accepted_choice_label TEXT NOT NULL DEFAULT '',
+			contact_user_id INTEGER, created_by_id INTEGER, updated_at TEXT
+		);
+		CREATE TABLE quote_items (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, quote_id INTEGER NOT NULL, description TEXT NOT NULL,
+			detail TEXT NOT NULL, quantity REAL NOT NULL, unit TEXT NOT NULL,
+			unit_price_cents INTEGER NOT NULL, is_choice INTEGER NOT NULL DEFAULT 0,
+			sort_order INTEGER NOT NULL
+		);
+		CREATE TABLE quote_specifications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, quote_id INTEGER NOT NULL, feature TEXT NOT NULL,
+			use_case TEXT NOT NULL, capability TEXT NOT NULL,
+			implementation_steps TEXT NOT NULL, sort_order INTEGER NOT NULL
+		);
+		CREATE TABLE quote_attachments (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, quote_id INTEGER NOT NULL,
+			storage_key TEXT NOT NULL UNIQUE, original_filename TEXT NOT NULL,
+			content_type TEXT NOT NULL, size_bytes INTEGER NOT NULL,
+			uploaded_by_id INTEGER, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, note TEXT);
+		CREATE TABLE project_budgets (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL UNIQUE,
+			total_amount_cents INTEGER NOT NULL, note TEXT NOT NULL
+		);
+		INSERT INTO projects(id,name,note) VALUES(9,'既有執行專案','');
+		INSERT INTO project_budgets(project_id,total_amount_cents,note) VALUES(9,10000,'原始預算');
+		INSERT INTO quotes(
+			id,quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,
+			note,status,version_no,parent_quote_id,project_id,quote_date,valid_until,issuer_contact,
+			issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,
+			show_unit_price,personal_name,personal_contact,accepted_choice_label,created_by_id
+		) VALUES(
+			1,'Q-2026-009','既有執行專案','客戶','ReViz','TWD','percent',0,0,
+			'','accepted',1,NULL,9,'2026-09-01',NULL,'','','','','','簽核','zh-TW','company',
+			0,'','','',1
+		);
+		INSERT INTO quote_items(quote_id,description,detail,quantity,unit,unit_price_cents,is_choice,sort_order)
+		VALUES(1,'專案服務','',1,'式',10000,0,0);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reviseReq := httptest.NewRequest(http.MethodPost, "/quotes/1/revise", nil)
+	reviseReq.SetPathValue("id", "1")
+	reviseRec := httptest.NewRecorder()
+	(&Server{DB: d}).quoteRevise(reviseRec, reviseReq)
+	if reviseRec.Code != http.StatusSeeOther {
+		t.Fatalf("quoteRevise status = %d, body = %s", reviseRec.Code, reviseRec.Body.String())
+	}
+	if got := reviseRec.Header().Get("Location"); got != "/quotes/2" {
+		t.Fatalf("revision redirect = %q; want /quotes/2", got)
+	}
+
+	var oldStatus, newStatus, newNo string
+	var newProjectID, parentID int64
+	if err := d.QueryRow(`SELECT status FROM quotes WHERE id=1`).Scan(&oldStatus); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.QueryRow(`SELECT quote_no,status,parent_quote_id,project_id FROM quotes WHERE id=2`).Scan(&newNo, &newStatus, &parentID, &newProjectID); err != nil {
+		t.Fatal(err)
+	}
+	if oldStatus != "accepted" || newStatus != "draft" || newNo != "Q-2026-009-R2" || parentID != 1 || newProjectID != 9 {
+		t.Fatalf("revision = old %q, new %q/%q, parent %d, project %d", oldStatus, newNo, newStatus, parentID, newProjectID)
+	}
+
+	if _, err := d.Exec(`UPDATE quote_items SET unit_price_cents=15000 WHERE quote_id=2`); err != nil {
+		t.Fatal(err)
+	}
+	acceptReq := httptest.NewRequest(http.MethodPost, "/quotes/2/accept", nil)
+	acceptReq.SetPathValue("id", "2")
+	acceptRec := httptest.NewRecorder()
+	(&Server{DB: d}).quoteAccept(acceptRec, acceptReq)
+	if acceptRec.Code != http.StatusSeeOther {
+		t.Fatalf("quoteAccept revision status = %d, body = %s", acceptRec.Code, acceptRec.Body.String())
+	}
+	if got := acceptRec.Header().Get("Location"); got != "/projects/9/management" {
+		t.Fatalf("accept redirect = %q; want existing project", got)
+	}
+
+	var projectCount int
+	var budget int64
+	var budgetNote, acceptedStatus string
+	if err := d.QueryRow(`SELECT COUNT(*) FROM projects`).Scan(&projectCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.QueryRow(`SELECT total_amount_cents,note FROM project_budgets WHERE project_id=9`).Scan(&budget, &budgetNote); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.QueryRow(`SELECT status FROM quotes WHERE id=2`).Scan(&acceptedStatus); err != nil {
+		t.Fatal(err)
+	}
+	if projectCount != 1 || budget != 15000 || acceptedStatus != "accepted" || !strings.Contains(budgetNote, "Q-2026-009-R2") {
+		t.Fatalf("after revision acceptance = projects %d, budget %d, status %q, note %q", projectCount, budget, acceptedStatus, budgetNote)
+	}
+}
+
 func TestQuotePrintRendersChoiceBreakdownsAndPaginationGuards(t *testing.T) {
 	s, err := NewServer(nil, os.DirFS("../.."), nil)
 	if err != nil {

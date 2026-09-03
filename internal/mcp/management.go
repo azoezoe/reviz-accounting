@@ -289,23 +289,24 @@ func (s *Server) cloneStandaloneQuoteVersion(id int64) (int64, error) {
 	}
 	defer tx.Rollback()
 	var quoteNo, status string
-	var version int
-	if err = tx.QueryRow(`SELECT quote_no,version_no,status FROM quotes WHERE id=?`, id).Scan(&quoteNo, &version, &status); err != nil {
+	if err = tx.QueryRow(`SELECT quote_no,status FROM quotes WHERE id=?`, id).Scan(&quoteNo, &status); err != nil {
 		return 0, err
 	}
-	if status != "draft" {
-		return 0, fmtErr("只有草稿報價單可以建立新版")
+	baseQuoteNo := strings.Split(quoteNo, "-R")[0]
+	var nextVersion int64
+	if err = tx.QueryRow(`SELECT COALESCE(MAX(version_no),0)+1 FROM quotes WHERE quote_no=? OR quote_no LIKE ?`, baseQuoteNo, baseQuoteNo+"-R%").Scan(&nextVersion); err != nil {
+		return 0, err
 	}
 	var newID int64
-	newNo := fmt.Sprintf("%s-R%d", strings.Split(quoteNo, "-R")[0], version+1)
-	err = tx.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id) SELECT ?,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,?,id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id FROM quotes WHERE id=? RETURNING id`, newNo, version+1, id).Scan(&newID)
+	newNo := fmt.Sprintf("%s-R%d", baseQuoteNo, nextVersion)
+	err = tx.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,project_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id) SELECT ?,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,?,id,project_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id FROM quotes WHERE id=? RETURNING id`, newNo, nextVersion, id).Scan(&newID)
 	if err == nil {
 		_, err = tx.Exec(`INSERT INTO quote_items(quote_id,description,detail,quantity,unit,unit_price_cents,is_choice,sort_order) SELECT ?,description,detail,quantity,unit,unit_price_cents,is_choice,sort_order FROM quote_items WHERE quote_id=?`, newID, id)
 	}
 	if err == nil {
 		_, err = tx.Exec(`INSERT INTO quote_specifications(quote_id,feature,use_case,capability,implementation_steps,sort_order) SELECT ?,feature,use_case,capability,implementation_steps,sort_order FROM quote_specifications WHERE quote_id=?`, newID, id)
 	}
-	if err == nil {
+	if err == nil && status == "draft" {
 		var result sql.Result
 		result, err = tx.Exec(`UPDATE quotes SET status='sent' WHERE id=? AND status='draft'`, id)
 		if err == nil {
@@ -465,8 +466,8 @@ func (s *Server) acceptStandaloneQuote(u *auth.User, a map[string]any) (any, err
 	if err != nil {
 		return nil, err
 	}
-	if q["status"] == "accepted" || q["project_id"].(int64) > 0 {
-		return nil, fmtErr("此報價已建立專案")
+	if q["status"] != "draft" {
+		return nil, fmtErr("只有草稿報價單可以由客戶同意")
 	}
 	name := strings.TrimSpace(str(a, "project_name"))
 	if name == "" {
@@ -496,18 +497,42 @@ func (s *Server) acceptStandaloneQuote(u *auth.User, a map[string]any) (any, err
 		return nil, err
 	}
 	defer tx.Rollback()
-	var pid int64
-	if err = tx.QueryRow(`INSERT INTO projects(name,note) VALUES($1,$2) RETURNING id`, name, "由報價 "+q["quote_no"].(string)+" 客戶同意後建立").Scan(&pid); err == nil {
+	pid := q["project_id"].(int64)
+	if pid == 0 {
+		err = tx.QueryRow(`INSERT INTO projects(name,note) VALUES($1,$2) RETURNING id`, name, "由報價 "+q["quote_no"].(string)+" 客戶同意後建立").Scan(&pid)
+	}
+	if err == nil {
 		note := "由報價單自動建立"
+		if q["project_id"].(int64) > 0 {
+			note = "由修訂報價單 " + q["quote_no"].(string) + " 客戶同意後更新"
+		}
 		if acceptedChoice != "" {
 			note += "（方案 " + acceptedChoice + "）"
 		}
-		_, err = tx.Exec(`INSERT INTO project_budgets(project_id,total_amount_cents,note) VALUES($1,$2,$3)`, pid, acceptedTotal, note)
+		if q["project_id"].(int64) == 0 {
+			_, err = tx.Exec(`INSERT INTO project_budgets(project_id,total_amount_cents,note) VALUES($1,$2,$3)`, pid, acceptedTotal, note)
+		} else {
+			var result sql.Result
+			result, err = tx.Exec(`UPDATE project_budgets SET total_amount_cents=$1,note=$2 WHERE project_id=$3`, acceptedTotal, note, pid)
+			if err == nil {
+				if rows, rowsErr := result.RowsAffected(); rowsErr != nil {
+					err = rowsErr
+				} else if rows == 0 {
+					_, err = tx.Exec(`INSERT INTO project_budgets(project_id,total_amount_cents,note) VALUES($1,$2,$3)`, pid, acceptedTotal, note)
+				}
+			}
+		}
 	}
 	if err == nil {
-		_, err = tx.Exec(`UPDATE quotes SET status='accepted',project_id=$1,accepted_choice_label=$2 WHERE id=$3`, pid, acceptedChoice, id)
+		var result sql.Result
+		result, err = tx.Exec(`UPDATE quotes SET status='accepted',project_id=$1,accepted_choice_label=$2 WHERE id=$3 AND status='draft'`, pid, acceptedChoice, id)
+		if err == nil {
+			if rows, rowsErr := result.RowsAffected(); rowsErr != nil || rows != 1 {
+				err = fmtErr("報價單已不是可同意的草稿")
+			}
+		}
 	}
-	if err == nil && u.Role != auth.RoleOwner {
+	if err == nil && q["project_id"].(int64) == 0 && u.Role != auth.RoleOwner {
 		_, err = tx.Exec(`INSERT INTO project_permissions(project_id,user_id,access_level) VALUES($1,$2,'write')`, pid, u.ID)
 	}
 	if err != nil {
@@ -516,7 +541,7 @@ func (s *Server) acceptStandaloneQuote(u *auth.User, a map[string]any) (any, err
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
-	return content(map[string]any{"execution_project_id": pid, "quote_accepted": true, "budget_allocated": true}, nil)
+	return content(map[string]any{"execution_project_id": pid, "quote_accepted": true, "project_created": q["project_id"].(int64) == 0, "budget_updated": q["project_id"].(int64) > 0}, nil)
 }
 
 func (s *Server) createProjectQuote(a map[string]any) (any, error) {

@@ -308,22 +308,29 @@
   {{if eq .Quote.Status "accepted"}}
   <span class="mgmt-accepted">✓ 已同意，已建立正式專案</span>
   <a class="lg-btn-primary" href="/projects/{{.Quote.ProjectID}}/management">開啟專案</a>
-  {{else}}
-  <form method="post" action="/quotes/{{.Quote.ID}}/accept" class="mgmt-accept" onsubmit="return confirm('確認客戶同意？系統會立即建立正式專案。')">
+  <form method="post" action="/quotes/{{.Quote.ID}}/revise" onsubmit="return confirm('要保留這份已同意報價，並建立可修改的新版本嗎？')">
+    <button class="lg-btn-primary" type="submit">建立預算修訂版</button>
+  </form>
+  {{else if eq .Quote.Status "draft"}}
+  <form method="post" action="/quotes/{{.Quote.ID}}/accept" class="mgmt-accept" onsubmit="return confirm('{{if gt .Quote.ProjectID 0}}確認客戶同意新版報價？系統會更新原專案預算。{{else}}確認客戶同意？系統會立即建立正式專案。{{end}}')">
+    {{if eq .Quote.ProjectID 0}}
     <input class="lg-input" name="project_name" placeholder="正式專案名稱（可留空）">
+    {{end}}
     {{if .Quote.HasChoices}}
     <select class="lg-select" name="choice_label" required aria-label="客戶選擇的報價方案">
       <option value="">選擇客戶同意方案</option>
       {{range .Quote.TotalOptions}}<option value="{{.Label}}">方案 {{.Label}} · {{.ChoiceDescription}}（{{money .TotalCents}}）</option>{{end}}
     </select>
     {{end}}
-    <button class="lg-btn-primary" type="submit">客戶同意並建立專案</button>
+    <button class="lg-btn-primary" type="submit">{{if gt .Quote.ProjectID 0}}客戶同意並更新專案預算{{else}}客戶同意並建立專案{{end}}</button>
   </form>
-  {{if eq .Quote.Status "draft"}}
   <form method="post" action="/quotes/{{.Quote.ID}}/delete" onsubmit="return confirm('確定刪除此草稿報價單？其項目、規格與附件都會一併刪除。')">
     <button class="lg-btn-danger" type="submit">刪除報價單</button>
   </form>
-  {{end}}
+  {{else}}
+  <form method="post" action="/quotes/{{.Quote.ID}}/revise" onsubmit="return confirm('要保留目前版本，並建立可修改的新版本嗎？')">
+    <button class="lg-btn-primary" type="submit">建立修訂版</button>
+  </form>
   {{end}}
 </div>
 

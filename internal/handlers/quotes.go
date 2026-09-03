@@ -463,12 +463,14 @@ func (s *Server) cloneQuoteVersion(ctx context.Context, tx *sql.Tx, q quoteView)
 			copiedAttachmentKeys = nil
 		}
 	}()
-	if q.Status != "draft" {
-		err = fmt.Errorf("只有草稿報價單可以建立新版")
+	baseQuoteNo := strings.Split(q.QuoteNo, "-R")[0]
+	var nextVersion int64
+	err = tx.QueryRow(`SELECT COALESCE(MAX(version_no),0)+1 FROM quotes WHERE quote_no=$1 OR quote_no LIKE $2`, baseQuoteNo, baseQuoteNo+"-R%").Scan(&nextVersion)
+	if err != nil {
 		return
 	}
-	quoteNo := fmt.Sprintf("%s-R%d", strings.Split(q.QuoteNo, "-R")[0], q.VersionNo+1)
-	err = tx.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id) SELECT $1,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,$2,id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id FROM quotes WHERE id=$3 RETURNING id`, quoteNo, q.VersionNo+1, q.ID).Scan(&newID)
+	quoteNo := fmt.Sprintf("%s-R%d", baseQuoteNo, nextVersion)
+	err = tx.QueryRow(`INSERT INTO quotes(quote_no,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,version_no,parent_quote_id,project_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id) SELECT $1,title,client_name,issuer_name,currency,discount_type,discount_value,tax_rate,note,$2,id,project_id,quote_date,valid_until,issuer_contact,issuer_email,issuer_tax_id,project_content,terms,signature_label,quote_language,quote_type,show_unit_price,personal_name,personal_contact,contact_user_id,created_by_id FROM quotes WHERE id=$3 RETURNING id`, quoteNo, nextVersion, q.ID).Scan(&newID)
 	if err != nil {
 		return
 	}
@@ -529,12 +531,14 @@ func (s *Server) cloneQuoteVersion(ctx context.Context, tx *sql.Tx, q quoteView)
 			return
 		}
 	}
-	result, err := tx.Exec(`UPDATE quotes SET status='sent' WHERE id=$1 AND status='draft'`, q.ID)
-	if err != nil {
-		return 0, copiedAttachmentKeys, err
-	}
-	if rows, err := result.RowsAffected(); err != nil || rows != 1 {
-		return 0, copiedAttachmentKeys, fmt.Errorf("報價單已不是可建立新版的草稿")
+	if q.Status == "draft" {
+		result, updateErr := tx.Exec(`UPDATE quotes SET status='sent' WHERE id=$1 AND status='draft'`, q.ID)
+		if updateErr != nil {
+			return 0, copiedAttachmentKeys, updateErr
+		}
+		if rows, rowsErr := result.RowsAffected(); rowsErr != nil || rows != 1 {
+			return 0, copiedAttachmentKeys, fmt.Errorf("報價單已不是可建立新版的草稿")
+		}
 	}
 	return newID, copiedAttachmentKeys, nil
 }
@@ -584,8 +588,8 @@ func (s *Server) quoteDelete(w http.ResponseWriter, r *http.Request) {
 func (s *Server) quoteAccept(w http.ResponseWriter, r *http.Request) {
 	id := parseInt64(r.PathValue("id"))
 	q, err := s.loadQuote(id)
-	if err != nil || q.ProjectID > 0 || q.Status == "accepted" {
-		http.Error(w, "此報價無法建立專案", 409)
+	if err != nil || q.Status != "draft" {
+		http.Error(w, "只有草稿報價單可以由客戶同意", http.StatusConflict)
 		return
 	}
 	name := strings.TrimSpace(r.FormValue("project_name"))
@@ -612,24 +616,45 @@ func (s *Server) quoteAccept(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var projectID int64
+	projectID := q.ProjectID
 	tx, err := s.DB.Begin()
-	if err == nil {
+	if err == nil && projectID == 0 {
 		err = tx.QueryRow(`INSERT INTO projects(name,note) VALUES($1,$2) RETURNING id`, name, "由報價 "+q.QuoteNo+" 客戶同意後建立").Scan(&projectID)
 	}
 	if err == nil {
 		note := "由報價單自動建立"
+		if q.ProjectID > 0 {
+			note = "由修訂報價單 " + q.QuoteNo + " 客戶同意後更新"
+		}
 		if acceptedChoice != "" {
 			note += "（方案 " + acceptedChoice + "）"
 		}
-		_, err = tx.Exec(`INSERT INTO project_budgets(project_id,total_amount_cents,note) VALUES($1,$2,$3)`, projectID, acceptedTotal, note)
+		if q.ProjectID == 0 {
+			_, err = tx.Exec(`INSERT INTO project_budgets(project_id,total_amount_cents,note) VALUES($1,$2,$3)`, projectID, acceptedTotal, note)
+		} else {
+			var result sql.Result
+			result, err = tx.Exec(`UPDATE project_budgets SET total_amount_cents=$1,note=$2 WHERE project_id=$3`, acceptedTotal, note, projectID)
+			if err == nil {
+				if rows, rowsErr := result.RowsAffected(); rowsErr != nil {
+					err = rowsErr
+				} else if rows == 0 {
+					_, err = tx.Exec(`INSERT INTO project_budgets(project_id,total_amount_cents,note) VALUES($1,$2,$3)`, projectID, acceptedTotal, note)
+				}
+			}
+		}
 	}
 	if err == nil {
-		_, err = tx.Exec(`UPDATE quotes SET status='accepted',project_id=$1,accepted_choice_label=$2 WHERE id=$3`, projectID, acceptedChoice, id)
+		var result sql.Result
+		result, err = tx.Exec(`UPDATE quotes SET status='accepted',project_id=$1,accepted_choice_label=$2 WHERE id=$3 AND status='draft'`, projectID, acceptedChoice, id)
+		if err == nil {
+			if rows, rowsErr := result.RowsAffected(); rowsErr != nil || rows != 1 {
+				err = fmt.Errorf("報價單已不是可同意的草稿")
+			}
+		}
 	}
 	if err == nil {
 		u := auth.FromContext(r.Context())
-		if u != nil && u.Role != auth.RoleOwner {
+		if q.ProjectID == 0 && u != nil && u.Role != auth.RoleOwner {
 			_, err = tx.Exec(`INSERT INTO project_permissions(project_id,user_id,access_level) VALUES($1,$2,'write')`, projectID, u.ID)
 		}
 	}
